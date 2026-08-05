@@ -16,7 +16,6 @@ from gateway.platforms.base import BasePlatformAdapter, MessageEvent, MessageTyp
 from .event_mapper import build_keyboard, event_fingerprint, map_update
 from .max_client import MaxClient
 
-
 logger = logging.getLogger(__name__)
 _MAX_WEBHOOK_BODY_BYTES = 1024 * 1024
 
@@ -124,7 +123,10 @@ class MaxAdapter(BasePlatformAdapter):
 
     async def _process_update(self, update: dict[str, Any]) -> None:
         mapped = map_update(update)
-        if mapped is None or mapped.user_id not in self._allowed_users:
+        if mapped is None:
+            return
+        if mapped.user_id not in self._allowed_users:
+            logger.warning("MAX rejected unauthorized user_id=%s", mapped.user_id)
             return
         source = self.build_source(
             chat_id=mapped.chat_id,

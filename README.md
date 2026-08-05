@@ -1,4 +1,4 @@
-# MAX Hermes Plugin
+# Max gateway adapter for Hermes Agent
 
 Webhook-only MAX Messenger gateway plugin for Hermes Agent.
 

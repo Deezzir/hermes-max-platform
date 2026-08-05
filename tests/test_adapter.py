@@ -85,6 +85,29 @@ async def test_webhook_acknowledges_and_dispatches_valid_event(
     await client.close()
 
 
+async def test_webhook_logs_unauthorized_sender_id_only(
+    adapter_config, message_created_update, caplog
+):
+    adapter = MaxAdapter(adapter_config)
+    message_created_update["message"]["body"]["text"] = "private message"
+    message_created_update["message"]["sender"]["user_id"] = 99
+    client = TestClient(TestServer(adapter.create_app()))
+    await client.start_server()
+
+    response = await client.post(
+        "/",
+        headers={"X-Max-Bot-Api-Secret": "webhook-secret"},
+        json=message_created_update,
+    )
+    await asyncio.sleep(0)
+
+    assert response.status == 200
+    assert "99" in caplog.text
+    assert "private message" not in caplog.text
+    await client.close()
+    await adapter.disconnect()
+
+
 async def test_send_chunks_at_max_limit_and_preserves_reply(adapter_config):
     adapter = MaxAdapter(adapter_config)
     adapter._client = FakeClient()
