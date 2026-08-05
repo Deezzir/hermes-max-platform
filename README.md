@@ -13,11 +13,7 @@ The plugin does not create or moderate bots, provision TLS, or configure Cloudfl
 
 ## Installation
 
-Place this repository at `~/.hermes/plugins/max/`. Install the runtime requirements in the Hermes environment:
-
-```bash
-uv pip install aiohttp tenacity
-```
+Place this repository at `~/.hermes/plugins/max/`. Hermes must be installed with its messaging runtime, which supplies `aiohttp`; Tenacity is already a Hermes core dependency. No separate plugin dependency installation is required.
 
 Set the required secrets in the Hermes environment:
 
