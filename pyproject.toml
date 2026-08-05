@@ -1,0 +1,53 @@
+[project]
+name = "max-hermes-plugin"
+version = "0.1.0"
+description = "MAX Messenger platform adapter for Hermes Agent"
+requires-python = ">=3.11"
+dependencies = [
+  "aiohttp>=3.10,<4",
+  "tenacity>=9,<10",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[dependency-groups]
+dev = [
+  "aiohttp>=3.10,<4",
+  "hermes-agent",
+  "pytest>=8,<9",
+  "pytest-aiohttp>=1,<2",
+  "pytest-asyncio>=0.24,<1",
+  "pyyaml>=6,<7",
+  "ruff>=0.8,<1",
+  "tenacity>=9,<10",
+  "mypy>=1.13,<2",
+  "tox>=4.23,<5",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["docs"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+warn_return_any = true
+warn_unused_ignores = true
+exclude = ["^tests/"]
+
+[tool.uv.sources]
+hermes-agent = { path = ".scratch/hermes-agent", editable = true }
