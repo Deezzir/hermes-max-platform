@@ -53,16 +53,20 @@ class MaxAdapter(BasePlatformAdapter):
             port = int(os.getenv("MAX_LISTEN_PORT", "8080"))
             self._site = web.TCPSite(self._runner, host, port)
             await self._site.start()
+            logger.info("MAX webhook listener started host=%s port=%s", host, port)
             await self._client.register_subscription(
                 self._webhook_url,
                 self._webhook_secret,
                 ["message_created", "message_edited", "message_callback", "bot_started"],
             )
+            logger.info("MAX webhook subscription registered url=%s", self._webhook_url)
         except Exception as exc:
+            logger.exception("MAX connection failed")
             await self.disconnect()
             self._set_fatal_error("connect_failed", str(exc), retryable=True)
             return False
         self._mark_connected()
+        logger.info("MAX adapter connected")
         return True
 
     async def disconnect(self) -> None:
@@ -80,6 +84,7 @@ class MaxAdapter(BasePlatformAdapter):
             await self._client.close()
             self._client = None
         self._mark_disconnected()
+        logger.info("MAX adapter disconnected")
 
     def create_app(self) -> web.Application:
         app = web.Application(client_max_size=_MAX_WEBHOOK_BODY_BYTES)
@@ -97,8 +102,10 @@ class MaxAdapter(BasePlatformAdapter):
         try:
             update = await request.json()
         except Exception:
+            logger.exception("MAX webhook invalid json")
             return web.Response(status=400, text="invalid json")
         if not isinstance(update, dict):
+            logger.warning("MAX webhook invalid update type=%s", type(update).__name__)
             return web.Response(status=400, text="invalid update")
         fingerprint = event_fingerprint(update)
         if fingerprint in self._seen:
@@ -110,6 +117,11 @@ class MaxAdapter(BasePlatformAdapter):
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         task.add_done_callback(self._log_task_failure)
+        logger.info(
+            "MAX webhook accepted update_type=%s chat_id=%s",
+            update.get("update_type", "unknown"),
+            update.get("chat_id", "unknown"),
+        )
         return web.Response(status=200)
 
     @staticmethod
@@ -128,6 +140,12 @@ class MaxAdapter(BasePlatformAdapter):
         if mapped.user_id not in self._allowed_users:
             logger.warning("MAX rejected unauthorized user_id=%s", mapped.user_id)
             return
+        logger.info(
+            "MAX dispatching update_type=%s chat_id=%s user_id=%s",
+            update.get("update_type", "unknown"),
+            mapped.chat_id,
+            mapped.user_id,
+        )
         source = self.build_source(
             chat_id=mapped.chat_id,
             chat_name=mapped.chat_id,
@@ -173,6 +191,7 @@ class MaxAdapter(BasePlatformAdapter):
             if metadata and metadata.get("max_keyboard") is not None:
                 attachments = [build_keyboard(metadata["max_keyboard"])]
         except ValueError as exc:
+            logger.exception("MAX build keyboard failed chat_id=%s", chat_id)
             return SendResult(success=False, error=str(exc))
         lock = self._send_locks.setdefault(chat_id, asyncio.Lock())
         message_id = None
@@ -193,9 +212,11 @@ class MaxAdapter(BasePlatformAdapter):
                 try:
                     response = await self._client.send_message(**kwargs)
                 except RuntimeError as exc:
+                    logger.exception("MAX send message failed chat_id=%s", chat_id)
                     return SendResult(success=False, error=str(exc))
                 self._last_send[chat_id] = time.monotonic()
                 message_id = response.get("message_id")
+                logger.info("MAX sent message chat_id=%s message_id=%s", chat_id, message_id)
         return SendResult(success=True, message_id=message_id)
 
     async def send_typing(self, chat_id: str, metadata: dict[str, Any] | None = None) -> None:
@@ -251,6 +272,7 @@ class MaxAdapter(BasePlatformAdapter):
                 kwargs["chat_id"] = chat_id
             response = await self._client.send_message(**kwargs)
         except (OSError, ValueError, RuntimeError) as exc:
+            logger.exception("MAX send %s failed chat_id=%s", media_type, chat_id)
             return SendResult(success=False, error=str(exc))
         return SendResult(success=True, message_id=response.get("message_id"))
 

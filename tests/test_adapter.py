@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -106,6 +107,32 @@ async def test_webhook_logs_unauthorized_sender_id_only(
     assert "private message" not in caplog.text
     await client.close()
     await adapter.disconnect()
+
+
+async def test_webhook_logs_accepted_update_without_message_text(
+    adapter_config, message_created_update, caplog
+):
+    adapter = MaxAdapter(adapter_config)
+    message_created_update["message"]["body"]["text"] = "private message"
+    client = TestClient(TestServer(adapter.create_app()))
+    await client.start_server()
+    caplog.set_level(logging.INFO, logger="max_hermes_plugin.adapter")
+
+    try:
+        response = await client.post(
+            "/",
+            headers={"X-Max-Bot-Api-Secret": "webhook-secret"},
+            json=message_created_update,
+        )
+        await asyncio.sleep(0)
+
+        assert response.status == 200
+        assert "message_created" in caplog.text
+        assert "9" in caplog.text
+        assert "private message" not in caplog.text
+    finally:
+        await client.close()
+        await adapter.disconnect()
 
 
 async def test_send_chunks_at_max_limit_and_preserves_reply(adapter_config):
