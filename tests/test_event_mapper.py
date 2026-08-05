@@ -17,8 +17,24 @@ def test_message_created_maps_direct_message():
     )
 
     assert event.text == "hello"
-    assert event.chat_id == "9"
+    assert event.chat_id == "7"
     assert event.user_id == "7"
+    assert event.chat_type == "dm"
+
+
+def test_direct_message_without_top_level_chat_id_replies_to_sender():
+    event = map_update(
+        {
+            "update_type": "message_created",
+            "message": {
+                "body": {"text": "hello"},
+                "sender": {"user_id": 7, "name": "Ada"},
+                "recipient": {"chat_id": 9},
+            },
+        }
+    )
+
+    assert event.chat_id == "7"
     assert event.chat_type == "dm"
 
 

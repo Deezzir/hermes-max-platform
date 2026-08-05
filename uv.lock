@@ -1192,8 +1192,8 @@ wheels = [
 ]
 
 [[package]]
-name = "max-hermes-plugin"
-version = "0.1.0"
+name = "max-platform"
+version = "0.1.1"
 source = { virtual = "." }
 dependencies = [
     { name = "aiohttp" },

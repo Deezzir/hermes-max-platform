@@ -47,14 +47,17 @@ def map_update(update: dict[str, Any]) -> InboundEvent | None:
     message = _message(update)
     user = message.get("sender") or update.get("user") or {}
     body = message.get("body") or {}
+    recipient = message.get("recipient") or {}
     chat_id = str(update.get("chat_id") or body.get("chat_id") or "")
     is_channel = bool(
-        update.get("is_channel") or (message.get("recipient") or {}).get("is_channel")
+        update.get("is_channel") or recipient.get("is_channel")
     )
     chat_type = "channel" if is_channel else "dm"
-    if (message.get("recipient") or {}).get("chat_id") and not is_channel:
-        chat_type = "group" if (message.get("recipient") or {}).get("type") == "chat" else "dm"
+    if recipient.get("chat_id") and not is_channel:
+        chat_type = "group" if recipient.get("type") == "chat" else "dm"
     user_id = str(user.get("user_id") or "")
+    if chat_type == "dm":
+        chat_id = user_id
     user_name = str(user.get("name") or user_id)
     if kind == "bot_started":
         payload = update.get("payload")
