@@ -1,0 +1,40 @@
+name: max-platform
+label: MAX
+kind: platform
+version: 0.1.0
+description: MAX Messenger gateway adapter for Hermes Agent.
+author: Deezzir
+requires_env:
+  - name: MAX_BOT_TOKEN
+    description: Bot API token from MAX Partner Platform.
+    prompt: MAX bot token
+    password: true
+  - name: MAX_WEBHOOK_URL
+    description: Public HTTPS URL forwarded by deployment infrastructure to this plugin.
+    prompt: Public webhook URL
+    password: false
+  - name: MAX_WEBHOOK_SECRET
+    description: Secret verified from X-Max-Bot-Api-Secret.
+    prompt: Webhook secret
+    password: true
+  - name: MAX_ALLOWED_USERS
+    description: Comma-separated MAX user IDs allowed to use Hermes.
+    prompt: Allowed MAX user IDs
+    password: false
+optional_env:
+  - name: MAX_LISTEN_HOST
+    description: Local webhook listener host (default 0.0.0.0).
+    prompt: Local listener host
+    password: false
+  - name: MAX_LISTEN_PORT
+    description: Local webhook listener port (default 8080).
+    prompt: Local listener port
+    password: false
+  - name: MAX_HOME_CHANNEL
+    description: Default MAX chat or channel ID for cron delivery.
+    prompt: MAX home channel
+    password: false
+  - name: MAX_REQUIRE_MENTION
+    description: Require a mention before responding in group chats.
+    prompt: Require mention in groups
+    password: false
