@@ -540,6 +540,7 @@ class MaxAdapter(BasePlatformAdapter):
             buttons.append(("Previous", f"page:{page - 1}"))
         if page < total_pages - 1:
             buttons.append(("Next", f"page:{page + 1}"))
+        buttons.append(("Back", "back"))
         return await self._send_interaction(
             chat_id,
             f"Select a model from `{provider}` ({page + 1}/{total_pages}):",
