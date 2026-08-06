@@ -1,5 +1,8 @@
 """Hermes directory-plugin entry point for MAX."""
 
-from .src.adapter import register
+if __package__:
+    from .src.adapter import register
+else:
+    from src.adapter import register
 
 __all__ = ["register"]
