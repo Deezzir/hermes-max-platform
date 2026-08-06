@@ -2,6 +2,8 @@
 
 Webhook-only MAX Messenger gateway plugin for Hermes Agent.
 
+Русская документация: [`docs/README.ru.md`](docs/README.ru.md).
+
 ## Prerequisites
 
 - A verified MAX organization and a moderated chatbot with status `created`.
@@ -13,9 +15,24 @@ The plugin does not create or moderate bots, provision TLS, or configure Cloudfl
 
 ## Installation
 
-Place this repository at `~/.hermes/plugins/max/`. The plugin runs inside Hermes and uses Hermes's installed Python runtime.
+Install the plugin from GitHub:
 
-Set the required secrets in the Hermes environment:
+```bash
+hermes plugins install https://github.com/Deezzir/max-platform
+```
+
+For a named profile, run the command with `-p <profile>`. The plugin runs inside Hermes and uses Hermes's installed Python runtime.
+
+Enable it in the profile `config.yaml`:
+
+```yaml
+gateway:
+  platforms:
+    max:
+      enabled: true
+```
+
+Put secrets in the profile `.env`, not in `config.yaml`:
 
 ```env
 MAX_BOT_TOKEN=...
@@ -24,7 +41,7 @@ MAX_WEBHOOK_SECRET=...
 MAX_ALLOWED_USERS=123456789
 ```
 
-Optional settings are `MAX_LISTEN_HOST` (default `0.0.0.0`), `MAX_LISTEN_PORT` (default `8080`), and `MAX_HOME_CHANNEL` for cron delivery.
+Optional `.env` settings are `MAX_LISTEN_HOST` (default `0.0.0.0`), `MAX_LISTEN_PORT` (default `8080`), and `MAX_HOME_CHANNEL` for cron delivery. `MAX_REQUIRE_MENTION=true` requires an `@bot_username` mention in groups and channels.
 
 The plugin listens at local `POST /` and exposes `GET /health`. It always sends MAX Markdown and never supports open access.
 
