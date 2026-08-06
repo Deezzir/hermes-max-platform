@@ -39,7 +39,7 @@ The plugin does not create or moderate MAX bots, issue TLS certificates, or conf
 Install the plugin from GitHub:
 
 ```bash
-hermes plugins install https://github.com/Deezzir/max-platform
+hermes plugins install https://github.com/Deezzir/hermes-max-platform
 ```
 
 For a named profile, add `-p <profile>`. The plugin runs in the Python environment installed with Hermes.

@@ -36,7 +36,7 @@ curl --fail --location --output russian-trusted-root-ca.crt \
 Установите плагин из GitHub:
 
 ```bash
-hermes plugins install https://github.com/Deezzir/max-platform
+hermes plugins install https://github.com/Deezzir/hermes-max-platform
 ```
 
 Для именованного профиля добавьте `-p <профиль>`. Плагин работает внутри среды Python, установленной вместе с Hermes.
