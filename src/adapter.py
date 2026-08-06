@@ -51,7 +51,9 @@ class MaxAdapter(BasePlatformAdapter):
         self._last_send: dict[str, float] = {}
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
-        self._interactive: dict[str, tuple[str, Callable[[str], Awaitable[str | None]]]] = {}
+        self._interactive: dict[
+            str, tuple[str, str | None, Callable[[str], Awaitable[str | None]]]
+        ] = {}
         self._interactive_counter = 0
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
@@ -205,11 +207,14 @@ class MaxAdapter(BasePlatformAdapter):
         logger.info("MAX command menu registered commands=%s", len(commands))
 
     def _next_interaction(
-        self, chat_id: str, handler: Callable[[str], Awaitable[str | None]]
+        self,
+        chat_id: str,
+        message_id: str | None,
+        handler: Callable[[str], Awaitable[str | None]],
     ) -> str:
         self._interactive_counter += 1
         interaction_id = str(self._interactive_counter)
-        self._interactive[interaction_id] = (chat_id, handler)
+        self._interactive[interaction_id] = (chat_id, message_id, handler)
         return interaction_id
 
     async def _handle_interactive_callback(self, mapped: Any, callback: dict[str, Any]) -> bool:
@@ -228,7 +233,7 @@ class MaxAdapter(BasePlatformAdapter):
             if state is None or state[0] != mapped.chat_id:
                 await self._client.answer_callback(callback_id, "This control has expired")
                 return True
-            result = await state[1](value)
+            result = await state[2](value)
             await self._client.answer_callback(callback_id)
             if result:
                 await self.send(mapped.chat_id, result)
@@ -245,15 +250,26 @@ class MaxAdapter(BasePlatformAdapter):
         text: str,
         buttons: list[tuple[str, str]],
         handler: Callable[[str], Awaitable[str | None]],
+        message_id: str | None = None,
     ) -> SendResult:
-        interaction_id = self._next_interaction(chat_id, handler)
+        interaction_id = self._next_interaction(chat_id, None, handler)
         rows = [
             [{"type": "callback", "text": label, "payload": f"hermes:{interaction_id}:{value}"}]
             for label, value in buttons
         ]
-        result = await self.send(chat_id, text, metadata={"max_keyboard": rows})
+        if message_id and self._client is not None:
+            try:
+                await self._client.edit_message(message_id, text, [build_keyboard(rows)])
+            except RuntimeError as exc:
+                self._interactive.pop(interaction_id, None)
+                return SendResult(success=False, error=str(exc))
+            result = SendResult(success=True, message_id=message_id)
+        else:
+            result = await self.send(chat_id, text, metadata={"max_keyboard": rows})
         if not result.success:
             self._interactive.pop(interaction_id, None)
+        else:
+            self._interactive[interaction_id] = (chat_id, result.message_id, handler)
         return result
 
     async def send_clarify(
@@ -368,6 +384,7 @@ class MaxAdapter(BasePlatformAdapter):
             for provider in providers
             if provider.get("slug")
         }
+        picker: dict[str, str | None] = {"message_id": None}
 
         async def choose_provider(slug: str) -> str | None:
             provider = provider_by_slug.get(slug)
@@ -376,7 +393,20 @@ class MaxAdapter(BasePlatformAdapter):
             models = [str(model) for model in provider.get("models") or []]
             if not models:
                 return "No models are available for this provider."
-            await self._send_model_page(chat_id, slug, models, 0, on_model_selected)
+
+            async def back() -> None:
+                await self._send_interaction(
+                    chat_id,
+                    "**Model configuration**\n\n"
+                    f"Current: `{current_model or 'unknown'}`\nSelect a provider:",
+                    buttons,
+                    choose_provider,
+                    picker["message_id"],
+                )
+
+            await self._send_model_page(
+                chat_id, slug, models, 0, on_model_selected, picker["message_id"], back
+            )
             return None
 
         buttons = []
@@ -385,13 +415,15 @@ class MaxAdapter(BasePlatformAdapter):
             if slug == current_provider:
                 label = f"✓ {label}"
             buttons.append((label, slug))
-        return await self._send_interaction(
+        result = await self._send_interaction(
             chat_id,
             "**Model configuration**\n\n"
             f"Current: `{current_model or 'unknown'}`\nSelect a provider:",
             buttons,
             choose_provider,
         )
+        picker["message_id"] = result.message_id
+        return result
 
     async def _send_model_page(
         self,
@@ -400,6 +432,8 @@ class MaxAdapter(BasePlatformAdapter):
         models: list[str],
         page: int,
         on_model_selected: Callable[[str, str, str], Awaitable[str]],
+        message_id: str | None,
+        on_back: Callable[[], Awaitable[None]],
     ) -> SendResult:
         page_size = 20
         total_pages = max(1, (len(models) + page_size - 1) // page_size)
@@ -410,8 +444,17 @@ class MaxAdapter(BasePlatformAdapter):
         async def choose_model(value: str) -> str | None:
             if value.startswith("page:"):
                 await self._send_model_page(
-                    chat_id, provider, models, int(value.removeprefix("page:")), on_model_selected
+                    chat_id,
+                    provider,
+                    models,
+                    int(value.removeprefix("page:")),
+                    on_model_selected,
+                    message_id,
+                    on_back,
                 )
+                return None
+            if value == "back":
+                await on_back()
                 return None
             index = int(value.removeprefix("model:"))
             return await on_model_selected(chat_id, models[index], provider)
@@ -424,11 +467,13 @@ class MaxAdapter(BasePlatformAdapter):
             buttons.append(("Previous", f"page:{page - 1}"))
         if page < total_pages - 1:
             buttons.append(("Next", f"page:{page + 1}"))
+        buttons.append(("Back", "back"))
         return await self._send_interaction(
             chat_id,
             f"Select a model from `{provider}` ({page + 1}/{total_pages}):",
             buttons,
             choose_model,
+            message_id,
         )
 
     async def send(
