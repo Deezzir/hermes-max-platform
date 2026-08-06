@@ -9,10 +9,7 @@ dependencies = [
 ]
 
 [tool.setuptools]
-package-dir = {"" = "src"}
-
-[tool.setuptools.packages.find]
-where = ["src"]
+packages = ["src"]
 
 [dependency-groups]
 dev = [

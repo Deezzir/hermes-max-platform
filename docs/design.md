@@ -34,17 +34,17 @@ The distributable plugin has a small, focused layout:
 ```text
 max-hermes-plugin/
   plugin.yaml
-  adapter.py
-  max_client.py
-  event_mapper.py
-  webhook.py
-  media.py
-  rate_limit.py
+  __init__.py
+  src/
+    __init__.py
+    adapter.py
+    max_client.py
+    event_mapper.py
   tests/
   docs/
 ```
 
-Users install the plugin by placing or linking this directory at `~/.hermes/plugins/max/`. `adapter.py` provides Hermes's `register(ctx)` entry point and `MaxAdapter`, while the other modules isolate MAX REST access, webhook ownership, event conversion, media transport, and pacing.
+Users install the plugin by placing or linking this directory at `~/.hermes/plugins/max/`. The root `__init__.py` provides Hermes's `register(ctx)` entry point; `src/adapter.py` provides `MaxAdapter`, while the other modules isolate MAX REST access and event conversion.
 
 ## Configuration
 
@@ -123,6 +123,19 @@ The mapper retains sender ID/name, chat ID/name/type, message ID, reply and forw
 
 `get_chat_info()` returns cached chat metadata and may query MAX chat details when that endpoint is applicable.
 
+## Command Menu And Interactive Controls
+
+On connection, the adapter synchronizes MAX's bot command menu through `PATCH /me/commands`. MAX permits at most 32 menu entries, so the plugin registers the highest-priority gateway commands using Hermes's canonical command-registry ordering. Every gateway command remains supported when typed, and `/commands` remains the entry point for commands that do not fit in MAX's native menu.
+
+The adapter implements Hermes's optional interactive platform hooks using MAX callback buttons:
+
+- `send_clarify()` renders a button for each choice and an `Other` button that returns the user to Hermes's text-input fallback.
+- `send_slash_confirm()` renders Approve Once, Always Approve, and Cancel for destructive and expensive slash commands, including `/new`, `/clear`, `/reset`, `/undo`, `/model`, and `/reload-mcp` confirmations.
+- `send_choice_picker()` renders finite selectors used by `/reasoning`, `/fast`, and future compatible gateway commands.
+- `send_model_picker()` renders a paginated provider selector followed by a paginated model selector for `/model`.
+
+The adapter keeps short-lived picker state keyed by chat and callback identifier. It authorizes the callback sender before invoking the Hermes callback or resolver supplied by the hook. Expired, invalid, unauthorized, or failed interactive sends fall back to the existing typed-command or text-response flow. After a choice resolves, the adapter updates the picker message through `PUT /messages/{messageId}` to show the result without active buttons when MAX permits the edit.
+
 ## Media
 
 Inbound attachments retain their MAX type and metadata for Hermes media processing: image, video, audio, file, sticker, contact, location, share, inline keyboard, and linked/replied content.
@@ -197,4 +210,4 @@ The project documentation includes:
 
 ## Acceptance Criteria
 
-The implementation is complete when an operator can install the plugin, configure a moderated MAX bot and trusted public HTTPS callback that forwards to the listener, start Hermes, and reliably exchange text, callbacks, and supported media with the agent through MAX. The adapter must respect MAX webhook, authentication, message-size, per-chat, and global rate limits; keep secrets and contact data out of logs; and support both live gateway and out-of-process cron delivery.
+The implementation is complete when an operator can install the plugin, configure a moderated MAX bot and trusted public HTTPS callback that forwards to the listener, start Hermes, and reliably exchange text, callbacks, supported media, and supported interactive controls with the agent through MAX. The adapter must respect MAX webhook, authentication, command-menu, message-size, per-chat, and global rate limits; keep secrets and contact data out of logs; and support both live gateway and out-of-process cron delivery.

@@ -6,9 +6,12 @@ import logging
 import os
 import time
 from collections import OrderedDict
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from agent.secret_scope import UnscopedSecretError as _UnscopedSecretError
+from agent.secret_scope import get_secret as _scoped_get_secret
 from aiohttp import web
 from gateway.config import Platform
 from gateway.platforms.base import BasePlatformAdapter, MessageEvent, MessageType, SendResult
@@ -18,16 +21,27 @@ from .max_client import MaxClient
 
 logger = logging.getLogger(__name__)
 _MAX_WEBHOOK_BODY_BYTES = 1024 * 1024
+_MAX_COMMAND_LIMIT = 32
+
+
+def _get_scoped_secret(name: str, default: str = "") -> str:
+    try:
+        value = _scoped_get_secret(name, default)
+    except _UnscopedSecretError:
+        value = os.getenv(name, default)
+    return value if value is not None else default
 
 
 class MaxAdapter(BasePlatformAdapter):
     def __init__(self, config: Any) -> None:
         super().__init__(config, Platform("max"))
         extra = getattr(config, "extra", {}) or {}
-        self._token = os.getenv("MAX_BOT_TOKEN") or extra.get("token", "")
-        self._webhook_url = os.getenv("MAX_WEBHOOK_URL") or extra.get("webhook_url", "")
-        self._webhook_secret = os.getenv("MAX_WEBHOOK_SECRET") or extra.get("webhook_secret", "")
-        allowed = os.getenv("MAX_ALLOWED_USERS") or extra.get("allowed_users", "")
+        self._token = _get_scoped_secret("MAX_BOT_TOKEN") or extra.get("token", "")
+        self._webhook_url = _get_scoped_secret("MAX_WEBHOOK_URL") or extra.get("webhook_url", "")
+        self._webhook_secret = _get_scoped_secret("MAX_WEBHOOK_SECRET") or extra.get(
+            "webhook_secret", ""
+        )
+        allowed = _get_scoped_secret("MAX_ALLOWED_USERS") or extra.get("allowed_users", "")
         self._allowed_users = {part.strip() for part in str(allowed).split(",") if part.strip()}
         self._seen: OrderedDict[str, None] = OrderedDict()
         self._tasks: set[asyncio.Task[None]] = set()
@@ -37,6 +51,8 @@ class MaxAdapter(BasePlatformAdapter):
         self._last_send: dict[str, float] = {}
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
+        self._interactive: dict[str, tuple[str, Callable[[str], Awaitable[str | None]]]] = {}
+        self._interactive_counter = 0
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
         if not all((self._token, self._webhook_url, self._webhook_secret, self._allowed_users)):
@@ -60,6 +76,7 @@ class MaxAdapter(BasePlatformAdapter):
                 ["message_created", "message_edited", "message_callback", "bot_started"],
             )
             logger.info("MAX webhook subscription registered url=%s", self._webhook_url)
+            await self._register_commands()
         except Exception as exc:
             logger.exception("MAX connection failed")
             await self.disconnect()
@@ -140,6 +157,10 @@ class MaxAdapter(BasePlatformAdapter):
         if mapped.user_id not in self._allowed_users:
             logger.warning("MAX rejected unauthorized user_id=%s", mapped.user_id)
             return
+        callback = update.get("callback") or update.get("message_callback") or {}
+        if update.get("update_type") == "message_callback":
+            if await self._handle_interactive_callback(mapped, callback):
+                return
         logger.info(
             "MAX dispatching update_type=%s chat_id=%s user_id=%s",
             update.get("update_type", "unknown"),
@@ -164,18 +185,251 @@ class MaxAdapter(BasePlatformAdapter):
             raw_message=mapped.raw_update,
             metadata={"edited": mapped.edited},
         )
-        callback = update.get("callback") or update.get("message_callback") or {}
-        callback_id = callback.get("callback_id") or callback.get("id")
-        if (
-            update.get("update_type") == "message_callback"
-            and callback_id
-            and self._client is not None
-        ):
-            try:
-                await self._client.answer_callback(str(callback_id))
-            except RuntimeError:
-                logger.warning("MAX callback acknowledgement failed")
         await self.handle_message(event)
+
+    async def _register_commands(self) -> None:
+        if self._client is None:
+            return
+        from hermes_cli.commands import (
+            COMMAND_REGISTRY,
+            _is_gateway_available,
+            _resolve_config_gates,
+        )
+
+        commands = [
+            {"name": command.name, "description": command.description[:128]}
+            for command in COMMAND_REGISTRY
+            if _is_gateway_available(command, _resolve_config_gates())
+        ][:_MAX_COMMAND_LIMIT]
+        await self._client.set_commands(commands)
+        logger.info("MAX command menu registered commands=%s", len(commands))
+
+    def _next_interaction(
+        self, chat_id: str, handler: Callable[[str], Awaitable[str | None]]
+    ) -> str:
+        self._interactive_counter += 1
+        interaction_id = str(self._interactive_counter)
+        self._interactive[interaction_id] = (chat_id, handler)
+        return interaction_id
+
+    async def _handle_interactive_callback(self, mapped: Any, callback: dict[str, Any]) -> bool:
+        callback_id = str(callback.get("callback_id") or callback.get("id") or "")
+        payload = str(callback.get("payload") or "")
+        if self._client is None:
+            return False
+        try:
+            if mapped.user_id not in self._allowed_users:
+                await self._client.answer_callback(callback_id, "Not authorized")
+                return True
+            prefix, interaction_id, value = payload.split(":", 2)
+            if prefix != "hermes":
+                return False
+            state = self._interactive.pop(interaction_id, None)
+            if state is None or state[0] != mapped.chat_id:
+                await self._client.answer_callback(callback_id, "This control has expired")
+                return True
+            result = await state[1](value)
+            await self._client.answer_callback(callback_id)
+            if result:
+                await self.send(mapped.chat_id, result)
+            return True
+        except (ValueError, RuntimeError):
+            logger.exception("MAX interactive callback failed")
+            if callback_id:
+                await self._client.answer_callback(callback_id, "Action failed")
+            return True
+
+    async def _send_interaction(
+        self,
+        chat_id: str,
+        text: str,
+        buttons: list[tuple[str, str]],
+        handler: Callable[[str], Awaitable[str | None]],
+    ) -> SendResult:
+        interaction_id = self._next_interaction(chat_id, handler)
+        rows = [
+            [{"type": "callback", "text": label, "payload": f"hermes:{interaction_id}:{value}"}]
+            for label, value in buttons
+        ]
+        result = await self.send(chat_id, text, metadata={"max_keyboard": rows})
+        if not result.success:
+            self._interactive.pop(interaction_id, None)
+        return result
+
+    async def send_clarify(
+        self,
+        chat_id: str,
+        question: str,
+        choices: list | None,
+        clarify_id: str,
+        session_key: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> SendResult:
+        if not choices:
+            return await self.send(chat_id, question, metadata=metadata)
+
+        async def resolve(value: str) -> str:
+            from tools.clarify_gateway import mark_awaiting_text, resolve_gateway_clarify
+
+            if value == "other":
+                mark_awaiting_text(clarify_id)
+                return "Type your answer."
+            resolve_gateway_clarify(clarify_id, str(choices[int(value)]))
+            return "Selection received."
+
+        labels = [(str(choice), str(index)) for index, choice in enumerate(choices)]
+        labels.append(("Other", "other"))
+        return await self._send_interaction(chat_id, question, labels, resolve)
+
+    async def send_slash_confirm(
+        self,
+        chat_id: str,
+        title: str,
+        message: str,
+        session_key: str,
+        confirm_id: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> SendResult:
+        async def resolve(choice: str) -> str:
+            from tools.slash_confirm import resolve as resolve_confirm
+
+            result = await resolve_confirm(session_key, confirm_id, choice)
+            return str(result or "This confirmation has expired.")
+
+        return await self._send_interaction(
+            chat_id,
+            message,
+            [("Approve once", "once"), ("Always approve", "always"), ("Cancel", "cancel")],
+            resolve,
+        )
+
+    async def send_exec_approval(
+        self,
+        chat_id: str,
+        command: str,
+        session_key: str,
+        description: str = "dangerous command",
+        metadata: dict[str, Any] | None = None,
+        allow_permanent: bool = True,
+        allow_session: bool = True,
+        smart_denied: bool = False,
+    ) -> SendResult:
+        async def resolve(choice: str) -> str:
+            from tools.approval import resolve_gateway_approval
+
+            resolved = resolve_gateway_approval(session_key, choice)
+            return "Approval received." if resolved else "This approval has expired."
+
+        buttons = [("Allow once", "once"), ("Deny", "deny")]
+        if allow_session and not smart_denied:
+            buttons.insert(1, ("Allow session", "session"))
+        if allow_permanent and not smart_denied:
+            buttons.insert(-1, ("Always allow", "always"))
+        return await self._send_interaction(
+            chat_id,
+            f"**Command approval required**\n\n`{command}`\n\n{description}",
+            buttons,
+            resolve,
+        )
+
+    async def send_choice_picker(
+        self,
+        chat_id: str,
+        title: str,
+        choices: list,
+        session_key: str,
+        on_choice_selected: Callable[[str, str], Awaitable[str]],
+        metadata: dict[str, Any] | None = None,
+    ) -> SendResult:
+        async def resolve(value: str) -> str:
+            return await on_choice_selected(chat_id, value)
+
+        buttons = []
+        for choice in choices:
+            value = str(choice.get("value", ""))
+            label = str(choice.get("label") or value)
+            if choice.get("is_current"):
+                label = f"✓ {label}"
+            buttons.append((label, value))
+        return await self._send_interaction(chat_id, title, buttons, resolve)
+
+    async def send_model_picker(
+        self,
+        chat_id: str,
+        providers: list,
+        current_model: str,
+        current_provider: str,
+        session_key: str,
+        on_model_selected: Callable[[str, str, str], Awaitable[str]],
+        metadata: dict[str, Any] | None = None,
+    ) -> SendResult:
+        provider_by_slug = {
+            str(provider.get("slug") or ""): provider
+            for provider in providers
+            if provider.get("slug")
+        }
+
+        async def choose_provider(slug: str) -> str | None:
+            provider = provider_by_slug.get(slug)
+            if provider is None:
+                return "This model picker has expired. Run /model again."
+            models = [str(model) for model in provider.get("models") or []]
+            if not models:
+                return "No models are available for this provider."
+            await self._send_model_page(chat_id, slug, models, 0, on_model_selected)
+            return None
+
+        buttons = []
+        for slug, provider in provider_by_slug.items():
+            label = str(provider.get("name") or slug)
+            if slug == current_provider:
+                label = f"✓ {label}"
+            buttons.append((label, slug))
+        return await self._send_interaction(
+            chat_id,
+            "**Model configuration**\n\n"
+            f"Current: `{current_model or 'unknown'}`\nSelect a provider:",
+            buttons,
+            choose_provider,
+        )
+
+    async def _send_model_page(
+        self,
+        chat_id: str,
+        provider: str,
+        models: list[str],
+        page: int,
+        on_model_selected: Callable[[str, str, str], Awaitable[str]],
+    ) -> SendResult:
+        page_size = 20
+        total_pages = max(1, (len(models) + page_size - 1) // page_size)
+        page = max(0, min(page, total_pages - 1))
+        start = page * page_size
+        page_models = models[start : start + page_size]
+
+        async def choose_model(value: str) -> str | None:
+            if value.startswith("page:"):
+                await self._send_model_page(
+                    chat_id, provider, models, int(value.removeprefix("page:")), on_model_selected
+                )
+                return None
+            index = int(value.removeprefix("model:"))
+            return await on_model_selected(chat_id, models[index], provider)
+
+        buttons = [
+            (model.split("/")[-1][:48], f"model:{start + index}")
+            for index, model in enumerate(page_models)
+        ]
+        if page > 0:
+            buttons.append(("Previous", f"page:{page - 1}"))
+        if page < total_pages - 1:
+            buttons.append(("Next", f"page:{page + 1}"))
+        return await self._send_interaction(
+            chat_id,
+            f"Select a model from `{provider}` ({page + 1}/{total_pages}):",
+            buttons,
+            choose_model,
+        )
 
     async def send(
         self,

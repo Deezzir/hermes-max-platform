@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from max_hermes_plugin.adapter import MaxAdapter, register
+from src.adapter import MaxAdapter, register
 
 
 @pytest.fixture
@@ -116,7 +116,7 @@ async def test_webhook_logs_accepted_update_without_message_text(
     message_created_update["message"]["body"]["text"] = "private message"
     client = TestClient(TestServer(adapter.create_app()))
     await client.start_server()
-    caplog.set_level(logging.INFO, logger="max_hermes_plugin.adapter")
+    caplog.set_level(logging.INFO, logger="src.adapter")
 
     try:
         response = await client.post(

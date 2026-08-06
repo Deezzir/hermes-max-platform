@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,6 +30,8 @@ _BUTTON_FIELDS = {
 }
 _THREE_BUTTON_TYPES = {"link", "open_app", "request_contact", "request_geo_location"}
 
+logger = logging.getLogger(__name__)
+
 
 def _message(update: dict[str, Any]) -> dict[str, Any]:
     return update.get("message") or update.get("message_created") or {}
@@ -49,16 +52,30 @@ def map_update(update: dict[str, Any]) -> InboundEvent | None:
     body = message.get("body") or {}
     recipient = message.get("recipient") or {}
     chat_id = str(update.get("chat_id") or body.get("chat_id") or "")
-    is_channel = bool(
-        update.get("is_channel") or recipient.get("is_channel")
-    )
+    is_channel = bool(update.get("is_channel") or recipient.get("is_channel"))
     chat_type = "channel" if is_channel else "dm"
-    if recipient.get("chat_id") and not is_channel:
-        chat_type = "group" if recipient.get("type") == "chat" else "dm"
+    recipient_chat_id = str(recipient.get("chat_id") or "")
+    if not is_channel and (recipient.get("type") == "chat" or recipient_chat_id.startswith("-")):
+        chat_type = "group"
+        chat_id = recipient_chat_id
     user_id = str(user.get("user_id") or "")
     if chat_type == "dm":
         chat_id = user_id
     user_name = str(user.get("name") or user_id)
+    logger.info(
+        "MAX mapping update_type=%s top_level_chat_id=%s body_chat_id=%s "
+        "recipient_chat_id=%s recipient_type=%s is_channel=%s sender_user_id=%s "
+        "resolved_chat_id=%s chat_type=%s",
+        kind,
+        update.get("chat_id"),
+        body.get("chat_id"),
+        recipient.get("chat_id"),
+        recipient.get("type"),
+        is_channel,
+        user_id,
+        chat_id,
+        chat_type,
+    )
     if kind == "bot_started":
         payload = update.get("payload")
         text = f"[MAX bot started: {payload}]" if payload else "[MAX bot started]"
@@ -69,7 +86,20 @@ def map_update(update: dict[str, Any]) -> InboundEvent | None:
         attachments = body.get("attachments") or []
         text = body.get("text") or _attachment_text(attachments)
     else:
+        logger.info("MAX ignoring unsupported update_type=%s", kind)
         return None
+    if not chat_id:
+        logger.warning("MAX mapped update without a chat_id update_type=%s", kind)
+    logger.info(
+        "MAX mapped update_type=%s chat_id=%s chat_type=%s sender_user_id=%s "
+        "message_id=%s edited=%s",
+        kind,
+        chat_id,
+        chat_type,
+        user_id,
+        message.get("message_id"),
+        kind == "message_edited",
+    )
     return InboundEvent(
         text,
         chat_id,

@@ -69,6 +69,9 @@ class MaxClient:
     async def get_me(self) -> dict[str, Any]:
         return await self._request("GET", "/me")
 
+    async def set_commands(self, commands: list[dict[str, str]]) -> dict[str, Any]:
+        return await self._request("PATCH", "/me/commands", json={"commands": commands})
+
     async def register_subscription(
         self, url: str, secret: str, update_types: list[str]
     ) -> dict[str, Any]:
@@ -101,6 +104,14 @@ class MaxClient:
             body["link"] = {"type": "reply", "message_id": reply_to}
         data = await self._request("POST", "/messages", params=params, json=body)
         return cast(dict[str, Any], data.get("message", data))
+
+    async def edit_message(
+        self, message_id: str, text: str, attachments: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"text": text, "format": "markdown"}
+        if attachments is not None:
+            body["attachments"] = attachments
+        return await self._request("PUT", "/messages", params={"message_id": message_id}, json=body)
 
     async def send_action(self, chat_id: str, action: str = "typing_on") -> None:
         await self._request("POST", f"/chats/{chat_id}/actions", json={"action": action})

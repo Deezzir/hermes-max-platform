@@ -3,7 +3,7 @@ import asyncio
 import pytest
 from aiohttp import web
 
-from max_hermes_plugin.max_client import MaxApiError, MaxClient
+from src.max_client import MaxApiError, MaxClient
 
 
 async def test_send_message_uses_authorization_and_markdown(aiohttp_server):

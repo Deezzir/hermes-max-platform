@@ -1,6 +1,6 @@
 import pytest
 
-from max_hermes_plugin.event_mapper import build_keyboard, map_update
+from src.event_mapper import build_keyboard, map_update
 
 
 def test_message_created_maps_direct_message():
@@ -36,6 +36,22 @@ def test_direct_message_without_top_level_chat_id_replies_to_sender():
 
     assert event.chat_id == "7"
     assert event.chat_type == "dm"
+
+
+def test_group_message_without_recipient_type_replies_to_group():
+    event = map_update(
+        {
+            "update_type": "message_created",
+            "message": {
+                "body": {"text": "hello"},
+                "sender": {"user_id": 7, "name": "Ada"},
+                "recipient": {"chat_id": -77592070320345},
+            },
+        }
+    )
+
+    assert event.chat_id == "-77592070320345"
+    assert event.chat_type == "group"
 
 
 def test_callback_maps_to_tagged_text():
