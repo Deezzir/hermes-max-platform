@@ -2,7 +2,7 @@ name: max-platform
 label: MAX
 kind: platform
 version: 0.1.1
-description: "Плагин MAX Messenger для Hermes Agent: webhook-шлюз чат-бота MAX."
+description: "MAX Messenger plugin for Hermes Agent: webhook gateway for MAX chatbots."
 author: Deezzir
 requires_env:
   - name: MAX_BOT_TOKEN

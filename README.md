@@ -1,8 +1,8 @@
 # MAX Messenger plugin for Hermes Agent
 
-Webhook-only MAX Messenger plugin for Hermes Agent. It connects an official MAX chatbot to Hermes Gateway through the MAX Bot API.
+Это плагин MAX Мессенджер для Hermes Agent с официальным Bot API, webhook и ограничением доступа. Полная инструкция: [`docs/README.ru.md`](docs/README.ru.md).
 
-Русский: это плагин MAX Мессенджер для Hermes Agent с официальным Bot API, webhook и ограничением доступа. Полная инструкция: [`docs/README.ru.md`](docs/README.ru.md).
+Webhook-only MAX Messenger plugin for Hermes Agent. It connects an official MAX chatbot to Hermes Gateway through the MAX Bot API.
 
 ## Prerequisites
 
@@ -59,6 +59,46 @@ The plugin listens at local `POST /` and exposes `GET /health`. It always sends 
 The plugin listens on its configured local port. Deployment infrastructure must forward the public HTTPS callback URL to that port. MAX validates the public HTTPS endpoint and its trusted certificate.
 
 Enable group-chat access in MAX bot settings before using group chats or channels.
+
+### Nginx Reverse Proxy
+
+MAX must reach a public HTTPS URL. Configure Nginx to terminate TLS and forward requests to the plugin's local listener:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name bot.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/bot.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/bot.example.com/privkey.pem;
+
+    client_max_body_size 1m;
+
+    location = / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /health {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+    }
+}
+```
+
+For this configuration, set the profile `.env` values:
+
+```env
+MAX_WEBHOOK_URL=https://bot.example.com/
+MAX_LISTEN_HOST=127.0.0.1
+MAX_LISTEN_PORT=8080
+```
+
+Nginx forwards `X-Max-Bot-Api-Secret` without extra configuration. Do not remove or replace that header; the plugin verifies it on every webhook.
 
 ## Token Rotation
 
