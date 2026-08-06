@@ -19,7 +19,7 @@ Set the required secrets in the Hermes environment:
 
 ```env
 MAX_BOT_TOKEN=...
-MAX_WEBHOOK_URL=https://max-webhook.bimos.noxu.dev/
+MAX_WEBHOOK_URL=https://your-public-domain.com/
 MAX_WEBHOOK_SECRET=...
 MAX_ALLOWED_USERS=123456789
 ```
