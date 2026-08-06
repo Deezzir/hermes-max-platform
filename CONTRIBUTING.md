@@ -7,6 +7,7 @@ Keep changes focused on this standalone plugin. Do not modify Hermes core files.
 Install the development dependencies, then run:
 
 ```bash
+uv sync --group dev
 tox
 ```
 

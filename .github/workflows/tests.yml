@@ -1,21 +1,52 @@
-name: tests
+name: Quality Checks
 
 on:
   push:
   pull_request:
 
 jobs:
-  tox:
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - name: Check out plugin
+        uses: actions/checkout@v4
+      - name: Check out Hermes Agent dependency
+        uses: actions/checkout@v4
         with:
           repository: NousResearch/hermes-agent
           ref: 6564f319a647b47de391cab2f608660323804a2b
           path: .scratch/hermes-agent
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.14"
-      - run: python -m pip install tox
-      - run: tox
+      - name: Set up UV
+        uses: astral-sh/setup-uv@v6
+      - name: Install development dependencies
+        run: uv sync --group dev
+      - name: Run Ruff lint checks
+        run: tox -e lint
+
+  unit:
+    name: Unit Tests and Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out plugin
+        uses: actions/checkout@v4
+      - name: Check out Hermes Agent dependency
+        uses: actions/checkout@v4
+        with:
+          repository: NousResearch/hermes-agent
+          ref: 6564f319a647b47de391cab2f608660323804a2b
+          path: .scratch/hermes-agent
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Set up UV
+        uses: astral-sh/setup-uv@v6
+      - name: Install development dependencies
+        run: uv sync --group dev
+      - name: Run unit tests with coverage gate
+        run: tox -e unit

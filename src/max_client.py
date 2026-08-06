@@ -13,6 +13,10 @@ _REQUEST_TIMEOUT_SECONDS = 30
 _MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
 
+def _is_attachment_host(hostname: str) -> bool:
+    return hostname in {"max.ru", "oneme.ru"} or hostname.endswith((".max.ru", ".oneme.ru"))
+
+
 class MaxApiError(RuntimeError):
     def __init__(self, status: int, message: str) -> None:
         super().__init__(message)
@@ -136,11 +140,7 @@ class MaxClient:
     async def download_attachment(self, url: str) -> tuple[bytes, str]:
         parsed = urlparse(url)
         hostname = parsed.hostname or ""
-        if (
-            parsed.scheme != "https"
-            or hostname not in {"max.ru"}
-            and not hostname.endswith(".max.ru")
-        ):
+        if parsed.scheme != "https" or not _is_attachment_host(hostname):
             raise ValueError("MAX attachment URL must use an HTTPS max.ru host")
         try:
             async with self._session.get(url, headers={"Authorization": ""}) as response:

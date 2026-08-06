@@ -31,3 +31,5 @@ dist/
 
 # Log files
 *.log
+.coverage
+coverage.xml

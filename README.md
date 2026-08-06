@@ -186,6 +186,7 @@ A MAX `401` indicates a token configuration issue and is not retried automatical
 Run checks with:
 
 ```bash
+uv sync --group dev
 tox
 ```
 

@@ -86,3 +86,30 @@ def test_callback_uses_clicking_user_for_authorization():
 def test_keyboard_rejects_invalid_callback_without_payload():
     with pytest.raises(ValueError, match="payload"):
         build_keyboard([[{"type": "callback", "text": "Continue"}]])
+
+
+def test_mapper_handles_attachment_bot_and_unsupported_updates():
+    attachment = map_update(
+        {
+            "update_type": "message_created",
+            "message": {
+                "body": {"attachments": [{"type": "file"}, {"type": "contact"}]},
+                "sender": {"user_id": 7},
+                "recipient": {"chat_id": 9},
+            },
+        }
+    )
+    started = map_update(
+        {"update_type": "bot_started", "payload": "invite", "user": {"user_id": 7}}
+    )
+
+    assert attachment.text == "[MAX file, MAX contact redacted]"
+    assert started.text == "[MAX bot started: invite]"
+    assert map_update({"update_type": "unknown"}) is None
+
+
+def test_keyboard_builds_valid_rows():
+    assert build_keyboard([[{"type": "callback", "text": "Continue", "payload": "continue"}]]) == {
+        "type": "inline_keyboard",
+        "payload": {"buttons": [[{"type": "callback", "text": "Continue", "payload": "continue"}]]},
+    }

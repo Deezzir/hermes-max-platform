@@ -190,7 +190,11 @@ class MaxAdapter(BasePlatformAdapter):
         if mapped is None:
             return
         if mapped.user_id not in self._allowed_users:
-            logger.warning("MAX rejected unauthorized user_id=%s", mapped.user_id)
+            logger.warning(
+                "MAX rejected unauthorized user_id=%s user_name=%s",
+                mapped.user_id,
+                mapped.user_name,
+            )
             return
         if (
             update.get("update_type") in {"message_created", "message_edited"}
