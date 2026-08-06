@@ -12,7 +12,7 @@ from src.event_mapper import InboundEvent
 @pytest.fixture
 def adapter_config(monkeypatch):
     monkeypatch.setenv("MAX_BOT_TOKEN", "token")
-    monkeypatch.setenv("MAX_WEBHOOK_URL", "https://max-webhook.bimos.noxu.dev/")
+    monkeypatch.setenv("MAX_WEBHOOK_URL", "https://webhook.url")
     monkeypatch.setenv("MAX_WEBHOOK_SECRET", "webhook-secret")
     monkeypatch.setenv("MAX_ALLOWED_USERS", "7")
     return SimpleNamespace(extra={})
