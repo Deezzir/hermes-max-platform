@@ -48,7 +48,8 @@ def _attachment_text(attachments: list[dict[str, Any]]) -> str:
 def map_update(update: dict[str, Any]) -> InboundEvent | None:
     kind = update.get("update_type")
     message = _message(update)
-    user = message.get("sender") or update.get("user") or {}
+    callback = update.get("callback") or update.get("message_callback") or {}
+    user = callback.get("user") or message.get("sender") or update.get("user") or {}
     body = message.get("body") or {}
     recipient = message.get("recipient") or {}
     chat_id = str(update.get("chat_id") or body.get("chat_id") or "")
@@ -80,7 +81,6 @@ def map_update(update: dict[str, Any]) -> InboundEvent | None:
         payload = update.get("payload")
         text = f"[MAX bot started: {payload}]" if payload else "[MAX bot started]"
     elif kind == "message_callback":
-        callback = update.get("callback") or update.get("message_callback") or {}
         text = f"[MAX callback payload: {callback.get('payload', '')}]"
     elif kind in {"message_created", "message_edited"}:
         attachments = body.get("attachments") or []

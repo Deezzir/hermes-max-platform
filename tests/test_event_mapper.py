@@ -67,6 +67,22 @@ def test_callback_maps_to_tagged_text():
     assert event.text == "[MAX callback payload: continue]"
 
 
+def test_callback_uses_clicking_user_for_authorization():
+    event = map_update(
+        {
+            "update_type": "message_callback",
+            "callback": {"payload": "continue", "user": {"user_id": 8, "name": "Grace"}},
+            "message": {
+                "sender": {"user_id": 7, "name": "Ada"},
+                "recipient": {"chat_id": 9},
+            },
+        }
+    )
+
+    assert event.user_id == "8"
+    assert event.user_name == "Grace"
+
+
 def test_keyboard_rejects_invalid_callback_without_payload():
     with pytest.raises(ValueError, match="payload"):
         build_keyboard([[{"type": "callback", "text": "Continue"}]])
