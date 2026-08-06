@@ -174,6 +174,9 @@ class MaxAdapter(BasePlatformAdapter):
         ):
             if not self._bot_username or f"@{self._bot_username}" not in mapped.text:
                 return
+        text = mapped.text
+        if self._bot_username:
+            text = text.replace(f"@{self._bot_username}", "").strip()
         callback = update.get("callback") or update.get("message_callback") or {}
         if update.get("update_type") == "message_callback":
             if await self._handle_interactive_callback(mapped, callback):
@@ -195,7 +198,7 @@ class MaxAdapter(BasePlatformAdapter):
         if len(self._chat_types) > 10_000:
             self._chat_types.popitem(last=False)
         event = MessageEvent(
-            text=mapped.text,
+            text=text,
             message_type=MessageType.TEXT,
             source=source,
             message_id=mapped.message_id,
@@ -505,7 +508,7 @@ class MaxAdapter(BasePlatformAdapter):
         message_id: str | None,
         on_back: Callable[[], Awaitable[None]],
     ) -> SendResult:
-        page_size = 20
+        page_size = 8
         total_pages = max(1, (len(models) + page_size - 1) // page_size)
         page = max(0, min(page, total_pages - 1))
         start = page * page_size
