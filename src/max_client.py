@@ -148,11 +148,16 @@ class MaxClient:
                 content_length = int(response.headers.get("Content-Length") or 0)
                 if content_length > _MAX_ATTACHMENT_BYTES:
                     raise ValueError("MAX attachment exceeds 10 MiB")
-                data = await response.content.read(_MAX_ATTACHMENT_BYTES + 1)
+                chunks = []
+                size = 0
+                async for chunk in response.content.iter_chunked(64 * 1024):
+                    size += len(chunk)
+                    if size > _MAX_ATTACHMENT_BYTES:
+                        raise ValueError("MAX attachment exceeds 10 MiB")
+                    chunks.append(chunk)
+                data = b"".join(chunks)
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:
             raise MaxApiError(503, str(exc)) from exc
-        if len(data) > _MAX_ATTACHMENT_BYTES:
-            raise ValueError("MAX attachment exceeds 10 MiB")
         return data, response.headers.get("Content-Type", "").split(";", 1)[0].lower()
 
     async def upload_file(self, path: Path, media_type: str) -> dict[str, Any]:

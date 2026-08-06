@@ -1,6 +1,6 @@
 import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 from aiohttp import web
@@ -228,7 +228,11 @@ async def test_download_attachment_validates_url_and_returns_content_type(monkey
     client = MaxClient("secret")
     response = MagicMock()
     response.headers = {"Content-Length": "3", "Content-Type": "image/png; charset=binary"}
-    response.content.read = AsyncMock(return_value=b"png")
+
+    async def chunks(chunk_size):
+        yield b"png"
+
+    response.content.iter_chunked = chunks
     response.raise_for_status = MagicMock()
     context = MagicMock()
     context.__aenter__.return_value = response
@@ -250,6 +254,29 @@ async def test_download_attachment_rejects_large_content(monkeypatch):
 
     with pytest.raises(ValueError, match="10 MiB"):
         await client.download_attachment("https://fd.oneme.ru/file")
+    await client.close()
+
+
+async def test_download_attachment_reads_all_chunks(monkeypatch):
+    client = MaxClient("secret")
+    response = MagicMock()
+    response.headers = {"Content-Type": "application/pdf"}
+    response.raise_for_status = MagicMock()
+
+    async def chunks(chunk_size):
+        yield b"%PDF-1.4\n"
+        yield b"1 0 obj\n"
+        yield b"%%EOF"
+
+    response.content.iter_chunked = chunks
+    context = MagicMock()
+    context.__aenter__.return_value = response
+    monkeypatch.setattr(client._session, "get", lambda *args, **kwargs: context)
+
+    assert await client.download_attachment("https://fd.oneme.ru/getfile") == (
+        b"%PDF-1.4\n1 0 obj\n%%EOF",
+        "application/pdf",
+    )
     await client.close()
 
 

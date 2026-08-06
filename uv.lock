@@ -1316,6 +1316,7 @@ version = "0.1.1"
 source = { virtual = "." }
 dependencies = [
     { name = "aiohttp" },
+    { name = "pillow" },
     { name = "tenacity" },
 ]
 
@@ -1325,6 +1326,7 @@ dev = [
     { name = "coverage", extra = ["toml"] },
     { name = "hermes-agent" },
     { name = "mypy" },
+    { name = "pillow" },
     { name = "pytest" },
     { name = "pytest-aiohttp" },
     { name = "pytest-asyncio" },
@@ -1337,6 +1339,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.10,<4" },
+    { name = "pillow", specifier = ">=11,<13" },
     { name = "tenacity", specifier = ">=9,<10" },
 ]
 
@@ -1346,6 +1349,7 @@ dev = [
     { name = "coverage", extras = ["toml"], specifier = ">=7,<8" },
     { name = "hermes-agent", editable = ".scratch/hermes-agent" },
     { name = "mypy", specifier = ">=1.13,<2" },
+    { name = "pillow", specifier = ">=11,<13" },
     { name = "pytest", specifier = ">=8,<9" },
     { name = "pytest-aiohttp", specifier = ">=1,<2" },
     { name = "pytest-asyncio", specifier = ">=0.24,<1" },

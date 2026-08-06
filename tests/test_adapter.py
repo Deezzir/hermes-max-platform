@@ -1,11 +1,13 @@
 import asyncio
 import logging
 import sys
+from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
+from PIL import Image
 
 from src.adapter import (
     MaxAdapter,
@@ -364,7 +366,10 @@ async def test_webhook_passes_downloaded_image_to_hermes(adapter_config, monkeyp
     adapter = MaxAdapter(adapter_config)
     adapter._client = FakeClient()
     image = tmp_path / "image.png"
-    image.write_bytes(b"png")
+    buffer = BytesIO()
+    Image.new("RGB", (1, 1)).save(buffer, format="PNG")
+    image.write_bytes(buffer.getvalue())
+    adapter._client.download_attachment = AsyncMock(return_value=(image.read_bytes(), "image/png"))
     adapter._client.downloaded_file = image
     monkeypatch.setattr("src.adapter.cache_image_from_bytes", lambda data, extension: str(image))
     received = asyncio.Event()
@@ -436,6 +441,32 @@ async def test_inbound_media_caches_files_and_ignores_unknown_types(adapter_conf
 
     assert urls == ["/cache/file.txt", "/cache/audio.ogg"]
     assert types == ["text/plain", "audio/ogg"]
+
+
+async def test_inbound_media_rejects_undecodable_image(adapter_config, monkeypatch):
+    adapter = MaxAdapter(adapter_config)
+    adapter._client = FakeClient()
+    adapter._client.download_attachment = AsyncMock(
+        return_value=(b"RIFF\x00\x00\x00\x00WEBP", "image/webp")
+    )
+    cache_image = MagicMock(return_value="/cache/image.webp")
+    monkeypatch.setattr("src.adapter.cache_image_from_bytes", cache_image)
+
+    urls, types = await adapter._inbound_media(
+        {
+            "message": {
+                "body": {
+                    "attachments": [
+                        {"type": "image", "payload": {"url": "https://i.oneme.ru/image"}}
+                    ]
+                }
+            }
+        }
+    )
+
+    assert urls == []
+    assert types == []
+    cache_image.assert_not_called()
 
 
 async def test_send_and_status_use_recipient_type(adapter_config):

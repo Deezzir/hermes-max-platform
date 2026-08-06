@@ -8,6 +8,7 @@ import os
 import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -25,6 +26,7 @@ from gateway.platforms.base import (
     cache_document_from_bytes,
     cache_image_from_bytes,
 )
+from PIL import Image, UnidentifiedImageError
 
 from .event_mapper import build_keyboard, event_fingerprint, map_update
 from .max_client import MaxClient
@@ -268,6 +270,8 @@ class MaxAdapter(BasePlatformAdapter):
                     or ".bin"
                 )
                 if kind == "image" and content_type.startswith("image/"):
+                    with Image.open(BytesIO(data)) as image:
+                        image.verify()
                     cached = cache_image_from_bytes(data, extension)
                 elif kind in {"audio", "voice"} and content_type.startswith("audio/"):
                     cached = cache_audio_from_bytes(data, extension)
@@ -278,7 +282,7 @@ class MaxAdapter(BasePlatformAdapter):
                     cached = cache_document_from_bytes(data, name)
                 else:
                     continue
-            except (RuntimeError, ValueError):
+            except (OSError, RuntimeError, UnidentifiedImageError, ValueError):
                 logger.warning("MAX ignored unsupported inbound attachment type=%s", kind)
                 continue
             media_urls.append(cached)
