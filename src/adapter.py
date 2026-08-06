@@ -22,6 +22,7 @@ from .max_client import MaxClient
 logger = logging.getLogger(__name__)
 _MAX_WEBHOOK_BODY_BYTES = 1024 * 1024
 _MAX_COMMAND_LIMIT = 32
+_MAX_INTERACTION_LIMIT = 1_000
 
 
 def _get_scoped_secret(name: str, default: str = "") -> str:
@@ -42,7 +43,12 @@ class MaxAdapter(BasePlatformAdapter):
             "webhook_secret", ""
         )
         allowed = _get_scoped_secret("MAX_ALLOWED_USERS") or extra.get("allowed_users", "")
+        require_mention = _get_scoped_secret("MAX_REQUIRE_MENTION") or extra.get(
+            "require_mention", ""
+        )
         self._allowed_users = {part.strip() for part in str(allowed).split(",") if part.strip()}
+        self._require_mention = str(require_mention).lower() in {"1", "true", "yes", "on"}
+        self._bot_username = ""
         self._seen: OrderedDict[str, None] = OrderedDict()
         self._tasks: set[asyncio.Task[None]] = set()
         self._client: MaxClient | Any | None = None
@@ -51,9 +57,10 @@ class MaxAdapter(BasePlatformAdapter):
         self._last_send: dict[str, float] = {}
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
-        self._interactive: dict[
+        self._status_messages: dict[tuple[str, str], str] = {}
+        self._interactive: OrderedDict[
             str, tuple[str, str | None, Callable[[str], Awaitable[str | None]]]
-        ] = {}
+        ] = OrderedDict()
         self._interactive_counter = 0
 
     async def connect(self, *, is_reconnect: bool = False) -> bool:
@@ -64,7 +71,8 @@ class MaxAdapter(BasePlatformAdapter):
             return False
         self._client = MaxClient(self._token)
         try:
-            await self._client.get_me()
+            bot = await self._client.get_me()
+            self._bot_username = str(bot.get("username") or "")
             self._runner = web.AppRunner(self.create_app())
             await self._runner.setup()
             host = os.getenv("MAX_LISTEN_HOST", "0.0.0.0")
@@ -159,6 +167,13 @@ class MaxAdapter(BasePlatformAdapter):
         if mapped.user_id not in self._allowed_users:
             logger.warning("MAX rejected unauthorized user_id=%s", mapped.user_id)
             return
+        if (
+            update.get("update_type") in {"message_created", "message_edited"}
+            and self._require_mention
+            and mapped.chat_type in {"group", "channel"}
+        ):
+            if not self._bot_username or f"@{self._bot_username}" not in mapped.text:
+                return
         callback = update.get("callback") or update.get("message_callback") or {}
         if update.get("update_type") == "message_callback":
             if await self._handle_interactive_callback(mapped, callback):
@@ -188,6 +203,13 @@ class MaxAdapter(BasePlatformAdapter):
             metadata={"edited": mapped.edited},
         )
         await self.handle_message(event)
+        if update.get("update_type") == "message_callback" and self._client is not None:
+            callback_id = str(callback.get("callback_id") or callback.get("id") or "")
+            if callback_id:
+                try:
+                    await self._client.answer_callback(callback_id)
+                except RuntimeError:
+                    logger.warning("MAX callback acknowledgement failed")
 
     async def _register_commands(self) -> None:
         if self._client is None:
@@ -215,6 +237,8 @@ class MaxAdapter(BasePlatformAdapter):
         self._interactive_counter += 1
         interaction_id = str(self._interactive_counter)
         self._interactive[interaction_id] = (chat_id, message_id, handler)
+        if len(self._interactive) > _MAX_INTERACTION_LIMIT:
+            self._interactive.popitem(last=False)
         return interaction_id
 
     async def _handle_interactive_callback(self, mapped: Any, callback: dict[str, Any]) -> bool:
@@ -236,7 +260,10 @@ class MaxAdapter(BasePlatformAdapter):
             result = await state[2](value)
             await self._client.answer_callback(callback_id)
             if result:
-                await self.send(mapped.chat_id, result)
+                if state[1]:
+                    await self._client.edit_message(state[1], result, [])
+                else:
+                    await self.send(mapped.chat_id, result)
             return True
         except (ValueError, RuntimeError):
             logger.exception("MAX interactive callback failed")
@@ -254,7 +281,20 @@ class MaxAdapter(BasePlatformAdapter):
         buttons: list[tuple[str, str]],
         handler: Callable[[str], Awaitable[str | None]],
         message_id: str | None = None,
+        closeable: bool = False,
     ) -> SendResult:
+        if len(buttons) + int(closeable) > 30:
+            return SendResult(success=False, error="MAX inline keyboards support at most 30 rows")
+        if closeable:
+            buttons = [*buttons, ("Close", "close")]
+
+            previous_handler = handler
+
+            async def handler(value: str) -> str | None:
+                if value == "close":
+                    return "Selection cancelled."
+                return await previous_handler(value)
+
         interaction_id = self._next_interaction(chat_id, None, handler)
         rows = [
             [{"type": "callback", "text": label, "payload": f"hermes:{interaction_id}:{value}"}]
@@ -298,7 +338,7 @@ class MaxAdapter(BasePlatformAdapter):
 
         labels = [(str(choice), str(index)) for index, choice in enumerate(choices)]
         labels.append(("Other", "other"))
-        return await self._send_interaction(chat_id, question, labels, resolve)
+        return await self._send_interaction(chat_id, question, labels, resolve, closeable=True)
 
     async def send_slash_confirm(
         self,
@@ -351,6 +391,31 @@ class MaxAdapter(BasePlatformAdapter):
             resolve,
         )
 
+    async def send_update_prompt(
+        self,
+        chat_id: str,
+        prompt: str,
+        default: str = "",
+        session_key: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> SendResult:
+        async def select(value: str) -> str:
+            from hermes_constants import get_hermes_home
+
+            response_path = get_hermes_home() / ".update_response"
+            temporary = response_path.with_suffix(".tmp")
+            temporary.write_text("y" if value == "yes" else "n", encoding="utf-8")
+            temporary.replace(response_path)
+            return f"Update prompt answered: **{'Yes' if value == 'yes' else 'No'}**"
+
+        suffix = f" (default: {default})" if default else ""
+        return await self._send_interaction(
+            chat_id,
+            f"**Update needs input**\n\n{prompt}{suffix}",
+            [("Yes", "yes"), ("No", "no")],
+            select,
+        )
+
     async def send_choice_picker(
         self,
         chat_id: str,
@@ -370,7 +435,7 @@ class MaxAdapter(BasePlatformAdapter):
             if choice.get("is_current"):
                 label = f"✓ {label}"
             buttons.append((label, value))
-        return await self._send_interaction(chat_id, title, buttons, resolve)
+        return await self._send_interaction(chat_id, title, buttons, resolve, closeable=True)
 
     async def send_model_picker(
         self,
@@ -405,6 +470,7 @@ class MaxAdapter(BasePlatformAdapter):
                     buttons,
                     choose_provider,
                     picker["message_id"],
+                    True,
                 )
 
             await self._send_model_page(
@@ -424,6 +490,7 @@ class MaxAdapter(BasePlatformAdapter):
             f"Current: `{current_model or 'unknown'}`\nSelect a provider:",
             buttons,
             choose_provider,
+            closeable=True,
         )
         picker["message_id"] = result.message_id
         return result
@@ -470,13 +537,13 @@ class MaxAdapter(BasePlatformAdapter):
             buttons.append(("Previous", f"page:{page - 1}"))
         if page < total_pages - 1:
             buttons.append(("Next", f"page:{page + 1}"))
-        buttons.append(("Back", "back"))
         return await self._send_interaction(
             chat_id,
             f"Select a model from `{provider}` ({page + 1}/{total_pages}):",
             buttons,
             choose_model,
             message_id,
+            True,
         )
 
     async def send(
@@ -520,6 +587,27 @@ class MaxAdapter(BasePlatformAdapter):
                 message_id = response.get("message_id")
                 logger.info("MAX sent message chat_id=%s message_id=%s", chat_id, message_id)
         return SendResult(success=True, message_id=message_id)
+
+    async def send_or_update_status(
+        self,
+        chat_id: str,
+        status_key: str,
+        content: str,
+        *,
+        metadata: dict[str, Any] | None = None,
+    ) -> SendResult:
+        key = (chat_id, status_key)
+        message_id = self._status_messages.get(key)
+        if message_id and self._client is not None:
+            try:
+                await self._client.edit_message(message_id, content)
+                return SendResult(success=True, message_id=message_id)
+            except RuntimeError:
+                self._status_messages.pop(key, None)
+        result = await self.send(chat_id, content, metadata=metadata)
+        if result.success and result.message_id:
+            self._status_messages[key] = result.message_id
+        return result
 
     async def send_typing(self, chat_id: str, metadata: dict[str, Any] | None = None) -> None:
         if self._client is not None and self._chat_types.get(chat_id) in {"group", "channel"}:

@@ -63,7 +63,7 @@ def map_update(update: dict[str, Any]) -> InboundEvent | None:
     if chat_type == "dm":
         chat_id = user_id
     user_name = str(user.get("name") or user_id)
-    logger.info(
+    logger.debug(
         "MAX mapping update_type=%s top_level_chat_id=%s body_chat_id=%s "
         "recipient_chat_id=%s recipient_type=%s is_channel=%s sender_user_id=%s "
         "resolved_chat_id=%s chat_type=%s",
@@ -86,11 +86,11 @@ def map_update(update: dict[str, Any]) -> InboundEvent | None:
         attachments = body.get("attachments") or []
         text = body.get("text") or _attachment_text(attachments)
     else:
-        logger.info("MAX ignoring unsupported update_type=%s", kind)
+        logger.debug("MAX ignoring unsupported update_type=%s", kind)
         return None
     if not chat_id:
         logger.warning("MAX mapped update without a chat_id update_type=%s", kind)
-    logger.info(
+    logger.debug(
         "MAX mapped update_type=%s chat_id=%s chat_type=%s sender_user_id=%s "
         "message_id=%s edited=%s",
         kind,

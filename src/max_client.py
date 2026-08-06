@@ -44,13 +44,14 @@ class MaxClient:
             if delay:
                 await self._sleep(delay)
             self._last_request = asyncio.get_running_loop().time()
-            try:
-                async with self._session.request(
-                    method, f"{self._base}{path}", **kwargs
-                ) as response:
+        try:
+            async with self._session.request(method, f"{self._base}{path}", **kwargs) as response:
+                try:
                     data = cast(dict[str, Any], await response.json(content_type=None))
-            except aiohttp.ClientError as exc:
-                raise MaxApiError(503, str(exc)) from exc
+                except (aiohttp.ContentTypeError, ValueError):
+                    data = {}
+        except aiohttp.ClientError as exc:
+            raise MaxApiError(503, str(exc)) from exc
         if response.status < 400:
             return data
         message = str(data.get("message", data)) if isinstance(data, dict) else str(data)
@@ -130,11 +131,14 @@ class MaxClient:
         form = aiohttp.FormData()
         with path.open("rb") as file:
             form.add_field("data", file, filename=path.name)
-            async with self._session.post(upload["url"], data=form) as response:
-                data = cast(dict[str, Any], await response.json(content_type=None))
-                if response.status >= 400:
-                    message = (
-                        str(data.get("message", data)) if isinstance(data, dict) else str(data)
-                    )
-                    raise MaxApiError(response.status, message)
+            try:
+                async with self._session.post(upload["url"], data=form) as response:
+                    try:
+                        data = cast(dict[str, Any], await response.json(content_type=None))
+                    except (aiohttp.ContentTypeError, ValueError):
+                        data = {}
+                    if response.status >= 400:
+                        raise MaxApiError(response.status, str(data.get("message", data)))
+            except aiohttp.ClientError as exc:
+                raise MaxApiError(503, str(exc)) from exc
         return data

@@ -13,7 +13,7 @@ The plugin does not create or moderate bots, provision TLS, or configure Cloudfl
 
 ## Installation
 
-Place this repository at `~/.hermes/plugins/max/`. Hermes must be installed with its messaging runtime, which supplies `aiohttp`; Tenacity is already a Hermes core dependency. No separate plugin dependency installation is required.
+Place this repository at `~/.hermes/plugins/max/`. The plugin runs inside Hermes and uses Hermes's installed Python runtime.
 
 Set the required secrets in the Hermes environment:
 
@@ -28,16 +28,9 @@ Optional settings are `MAX_LISTEN_HOST` (default `0.0.0.0`), `MAX_LISTEN_PORT` (
 
 The plugin listens at local `POST /` and exposes `GET /health`. It always sends MAX Markdown and never supports open access.
 
-## Kubernetes Deployment
+## Deployment
 
-The plugin listens on its Pod port. Deployment infrastructure forwards the public URL to that port:
-
-```text
-MAX -> Cloudflare edge certificate for max-webhook.bimos.noxu.dev
-    -> cloudflared tunnel -> kgateway HTTPRoute -> Service -> plugin Pod:8080
-```
-
-Cloudflare owns the public TLS certificate. The hostname must be covered by the edge certificate, and MAX validates the public HTTPS endpoint, not the in-cluster service.
+The plugin listens on its configured local port. Deployment infrastructure must forward the public HTTPS callback URL to that port. MAX validates the public HTTPS endpoint and its trusted certificate.
 
 Enable group-chat access in MAX bot settings before using group chats or channels.
 
