@@ -103,7 +103,12 @@ class MaxClient:
         if reply_to:
             body["link"] = {"type": "reply", "message_id": reply_to}
         data = await self._request("POST", "/messages", params=params, json=body)
-        return cast(dict[str, Any], data.get("message", data))
+        message = cast(dict[str, Any], data.get("message", data))
+        if "message_id" not in message:
+            body = message.get("body") or {}
+            if body.get("mid"):
+                message = {**message, "message_id": str(body["mid"])}
+        return message
 
     async def edit_message(
         self, message_id: str, text: str, attachments: list[dict[str, Any]] | None = None

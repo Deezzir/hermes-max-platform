@@ -13,7 +13,7 @@ async def test_send_message_uses_authorization_and_markdown(aiohttp_server):
         received["authorization"] = request.headers["Authorization"]
         received["query"] = dict(request.query)
         received["body"] = await request.json()
-        return web.json_response({"message": {"message_id": "m1"}})
+        return web.json_response({"message": {"body": {"mid": "m1"}}})
 
     app = web.Application()
     app.router.add_post("/messages", messages)
