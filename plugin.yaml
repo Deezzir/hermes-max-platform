@@ -2,7 +2,7 @@ name: max-platform
 label: MAX
 kind: platform
 version: 0.1.1
-description: MAX Messenger gateway adapter for Hermes Agent.
+description: "Плагин MAX Messenger для Hermes Agent: webhook-шлюз чат-бота MAX."
 author: Deezzir
 requires_env:
   - name: MAX_BOT_TOKEN

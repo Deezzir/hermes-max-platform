@@ -1,6 +1,6 @@
-# Плагин MAX для Hermes Agent
+# Плагин MAX Messenger для Hermes Agent
 
-Плагин подключает профиль Hermes Gateway к чат-боту MAX. Он принимает события через webhook и отправляет ответы Hermes через Bot API MAX.
+Официальный webhook-плагин MAX Messenger для Hermes Agent подключает профиль Hermes Gateway к чат-боту MAX. Он принимает события через Bot API MAX и отправляет ответы Hermes обратно в MAX.
 
 ## Что поддерживается
 
@@ -17,6 +17,17 @@
 - Токен бота из MAX Partner Platform.
 - Публичный HTTPS URL с доверенным сертификатом. MAX должен иметь возможность отправлять запросы на этот URL.
 - Разрешенные идентификаторы пользователей в `MAX_ALLOWED_USERS`.
+
+### Корневой сертификат для MAX API
+
+Плагин обращается к `https://platform-api2.max.ru`. На хосте Hermes должен быть установлен российский доверенный корневой сертификат. Скачайте сертификат:
+
+```bash
+curl --fail --location --output russian-trusted-root-ca.crt \
+  https://gu-st.ru/content/lending/russian_trusted_root_ca_pem.crt
+```
+
+Затем установите его в хранилище сертификатов ОС или Python-окружения, из которого запускается Hermes. Не добавляйте файл сертификата в этот репозиторий и не коммитьте его.
 
 Плагин не создает и не модерирует ботов MAX, не выпускает TLS-сертификаты и не настраивает туннель, reverse proxy или Kubernetes.
 
@@ -80,6 +91,46 @@ MAX -> public HTTPS -> reverse proxy/tunnel -> сервис -> Hermes:MAX_LISTEN
 ```
 
 Включите доступ бота к групповым чатам в настройках MAX, если бот должен работать в группах или каналах.
+
+### Nginx reverse proxy
+
+MAX должен обращаться к публичному HTTPS URL. Настройте Nginx так, чтобы он принимал HTTPS и пересылал запросы в локальный listener плагина:
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name bot.example.ru;
+
+    ssl_certificate /etc/letsencrypt/live/bot.example.ru/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/bot.example.ru/privkey.pem;
+
+    client_max_body_size 1m;
+
+    location = / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /health {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+    }
+}
+```
+
+Для этой конфигурации добавьте в `.env` профиля:
+
+```env
+MAX_WEBHOOK_URL=https://bot.example.ru/
+MAX_LISTEN_HOST=127.0.0.1
+MAX_LISTEN_PORT=8080
+```
+
+Nginx передает `X-Max-Bot-Api-Secret` без дополнительной настройки. Не удаляйте и не заменяйте этот заголовок: плагин проверяет его для каждого webhook.
 
 ## Группы и упоминания
 

@@ -1,0 +1,6 @@
+# Non-secret Hermes profile configuration for the MAX Messenger platform.
+# Keep MAX_BOT_TOKEN and MAX_WEBHOOK_SECRET in the profile .env file.
+gateway:
+  platforms:
+    max:
+      enabled: true

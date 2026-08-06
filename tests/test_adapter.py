@@ -6,6 +6,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from src.adapter import MaxAdapter, register
+from src.event_mapper import InboundEvent
 
 
 @pytest.fixture
@@ -172,11 +173,77 @@ async def test_send_image_file_uploads_then_sends_attachment(adapter_config, tmp
     ]
 
 
+async def test_interactive_callback_rejects_another_group_member(adapter_config):
+    adapter = MaxAdapter(adapter_config)
+    adapter._client = FakeClient()
+    adapter._allowed_users = {"7", "8"}
+    called = False
+
+    async def resolve(value):
+        nonlocal called
+        called = True
+        return "approved"
+
+    interaction_id = adapter._next_interaction("-42", "m1", resolve, user_id="7")
+    event = InboundEvent("", "-42", "group", "8", "Grace", None, {})
+
+    handled = await adapter._handle_interactive_callback(
+        event, {"callback_id": "cb1", "payload": f"hermes:{interaction_id}:once"}
+    )
+
+    assert handled is True
+    assert called is False
+    assert adapter._client.answers == [("cb1", "This control has expired")]
+
+
+async def test_webhook_passes_downloaded_image_to_hermes(adapter_config, monkeypatch, tmp_path):
+    adapter = MaxAdapter(adapter_config)
+    adapter._client = FakeClient()
+    image = tmp_path / "image.png"
+    image.write_bytes(b"png")
+    adapter._client.downloaded_file = image
+    monkeypatch.setattr("src.adapter.cache_image_from_bytes", lambda data, extension: str(image))
+    received = asyncio.Event()
+
+    async def handle_message(event):
+        assert event.media_urls == [str(image)]
+        assert event.media_types == ["image/png"]
+        received.set()
+
+    adapter.handle_message = handle_message
+    client = TestClient(TestServer(adapter.create_app()))
+    await client.start_server()
+
+    response = await client.post(
+        "/",
+        headers={"X-Max-Bot-Api-Secret": "webhook-secret"},
+        json={
+            "update_type": "message_created",
+            "message": {
+                "message_id": "m1",
+                "body": {
+                    "attachments": [
+                        {"type": "image", "payload": {"url": "https://cdn.max.ru/image.png"}}
+                    ]
+                },
+                "sender": {"user_id": 7, "name": "Ada"},
+                "recipient": {"chat_id": 9},
+            },
+        },
+    )
+
+    assert response.status == 200
+    await asyncio.wait_for(received.wait(), timeout=1)
+    await client.close()
+
+
 class FakeClient:
     def __init__(self):
         self.messages = []
         self.actions = []
         self.uploads = []
+        self.answers = []
+        self.downloaded_file = None
 
     async def send_message(self, **kwargs):
         self.messages.append(kwargs)
@@ -188,3 +255,12 @@ class FakeClient:
     async def upload_file(self, path, media_type):
         self.uploads.append((path, media_type))
         return {"token": "uploaded"}
+
+    async def answer_callback(self, callback_id, text=None):
+        self.answers.append((callback_id, text))
+
+    async def edit_message(self, message_id, text, attachments):
+        return {"message_id": message_id}
+
+    async def download_attachment(self, url):
+        return b"image", "image/png"

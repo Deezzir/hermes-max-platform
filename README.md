@@ -1,8 +1,8 @@
-# Max gateway adapter for Hermes Agent
+# MAX Messenger plugin for Hermes Agent
 
-Webhook-only MAX Messenger gateway plugin for Hermes Agent.
+Webhook-only MAX Messenger plugin for Hermes Agent. It connects an official MAX chatbot to Hermes Gateway through the MAX Bot API.
 
-Русская документация: [`docs/README.ru.md`](docs/README.ru.md).
+Русский: это плагин MAX Мессенджер для Hermes Agent с официальным Bot API, webhook и ограничением доступа. Полная инструкция: [`docs/README.ru.md`](docs/README.ru.md).
 
 ## Prerequisites
 
@@ -10,6 +10,15 @@ Webhook-only MAX Messenger gateway plugin for Hermes Agent.
 - The bot token from MAX Partner Platform.
 - A public HTTPS webhook URL on port 443 with a trusted certificate.
 - `MAX_ALLOWED_USERS` containing every MAX user ID permitted to use the bot.
+
+The host must trust the Russian root certificate used by `https://platform-api2.max.ru`. Download it before starting Hermes:
+
+```bash
+curl --fail --location --output russian-trusted-root-ca.crt \
+  https://gu-st.ru/content/lending/russian_trusted_root_ca_pem.crt
+```
+
+Install the certificate in the operating system or Python trust store used by Hermes. Do not place the certificate in this repository or commit it.
 
 The plugin does not create or moderate bots, provision TLS, or configure Cloudflare Tunnel, kgateway, or Kubernetes resources.
 

@@ -3,18 +3,28 @@ from __future__ import annotations
 import asyncio
 import hmac
 import logging
+import mimetypes
 import os
 import time
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from agent.secret_scope import UnscopedSecretError as _UnscopedSecretError
 from agent.secret_scope import get_secret as _scoped_get_secret
 from aiohttp import web
 from gateway.config import Platform
-from gateway.platforms.base import BasePlatformAdapter, MessageEvent, MessageType, SendResult
+from gateway.platforms.base import (
+    BasePlatformAdapter,
+    MessageEvent,
+    MessageType,
+    SendResult,
+    cache_audio_from_bytes,
+    cache_document_from_bytes,
+    cache_image_from_bytes,
+)
 
 from .event_mapper import build_keyboard, event_fingerprint, map_update
 from .max_client import MaxClient
@@ -60,7 +70,7 @@ class MaxAdapter(BasePlatformAdapter):
         self._token_lock_held = False
         self._status_messages: dict[tuple[str, str], str] = {}
         self._interactive: OrderedDict[
-            str, tuple[str, str | None, Callable[[str], Awaitable[str | None]]]
+            str, tuple[str, str, str | None, Callable[[str], Awaitable[str | None]]]
         ] = OrderedDict()
         self._interactive_counter = 0
 
@@ -212,13 +222,16 @@ class MaxAdapter(BasePlatformAdapter):
         self._chat_types[mapped.chat_id] = mapped.chat_type
         if len(self._chat_types) > 10_000:
             self._chat_types.popitem(last=False)
+        media_urls, media_types = await self._inbound_media(update)
         event = MessageEvent(
             text=text,
-            message_type=MessageType.TEXT,
+            message_type=MessageType.PHOTO if media_types and not text else MessageType.TEXT,
             source=source,
             message_id=mapped.message_id,
             raw_message=mapped.raw_update,
             metadata={"edited": mapped.edited},
+            media_urls=media_urls,
+            media_types=media_types,
         )
         await self.handle_message(event)
         if update.get("update_type") == "message_callback" and self._client is not None:
@@ -228,6 +241,45 @@ class MaxAdapter(BasePlatformAdapter):
                     await self._client.answer_callback(callback_id)
                 except RuntimeError:
                     logger.warning("MAX callback acknowledgement failed")
+
+    async def _inbound_media(self, update: dict[str, Any]) -> tuple[list[str], list[str]]:
+        if self._client is None:
+            return [], []
+        attachments = ((update.get("message") or {}).get("body") or {}).get("attachments") or []
+        media_urls: list[str] = []
+        media_types: list[str] = []
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            kind = str(attachment.get("type") or "")
+            payload = attachment.get("payload") or {}
+            url = str(payload.get("url") or "") if isinstance(payload, dict) else ""
+            if kind not in {"image", "audio", "voice", "file", "document"} or not url:
+                continue
+            try:
+                data, content_type = await self._client.download_attachment(url)
+                extension = (
+                    Path(urlparse(url).path).suffix
+                    or mimetypes.guess_extension(content_type)
+                    or ".bin"
+                )
+                if kind == "image" and content_type.startswith("image/"):
+                    cached = cache_image_from_bytes(data, extension)
+                elif kind in {"audio", "voice"} and content_type.startswith("audio/"):
+                    cached = cache_audio_from_bytes(data, extension)
+                elif kind in {"file", "document"}:
+                    name = str(
+                        payload.get("filename") or Path(urlparse(url).path).name or "document"
+                    )
+                    cached = cache_document_from_bytes(data, name)
+                else:
+                    continue
+            except (RuntimeError, ValueError):
+                logger.warning("MAX ignored unsupported inbound attachment type=%s", kind)
+                continue
+            media_urls.append(cached)
+            media_types.append(content_type or "application/octet-stream")
+        return media_urls, media_types
 
     async def _register_commands(self) -> None:
         if self._client is None:
@@ -251,10 +303,11 @@ class MaxAdapter(BasePlatformAdapter):
         chat_id: str,
         message_id: str | None,
         handler: Callable[[str], Awaitable[str | None]],
+        user_id: str = "",
     ) -> str:
         self._interactive_counter += 1
         interaction_id = str(self._interactive_counter)
-        self._interactive[interaction_id] = (chat_id, message_id, handler)
+        self._interactive[interaction_id] = (chat_id, user_id, message_id, handler)
         if len(self._interactive) > _MAX_INTERACTION_LIMIT:
             self._interactive.popitem(last=False)
         return interaction_id
@@ -272,14 +325,14 @@ class MaxAdapter(BasePlatformAdapter):
             if prefix != "hermes":
                 return False
             state = self._interactive.pop(interaction_id, None)
-            if state is None or state[0] != mapped.chat_id:
+            if state is None or state[0] != mapped.chat_id or state[1] not in {"", mapped.user_id}:
                 await self._client.answer_callback(callback_id, "This control has expired")
                 return True
-            result = await state[2](value)
+            result = await state[3](value)
             await self._client.answer_callback(callback_id)
             if result:
-                if state[1]:
-                    await self._client.edit_message(state[1], result, [])
+                if state[2]:
+                    await self._client.edit_message(state[2], result, [])
                 else:
                     await self.send(mapped.chat_id, result)
             return True
@@ -300,6 +353,7 @@ class MaxAdapter(BasePlatformAdapter):
         handler: Callable[[str], Awaitable[str | None]],
         message_id: str | None = None,
         closeable: bool = False,
+        user_id: str = "",
     ) -> SendResult:
         if len(buttons) + int(closeable) > 30:
             return SendResult(success=False, error="MAX inline keyboards support at most 30 rows")
@@ -313,7 +367,7 @@ class MaxAdapter(BasePlatformAdapter):
                     return "Selection cancelled."
                 return await previous_handler(value)
 
-        interaction_id = self._next_interaction(chat_id, None, handler)
+        interaction_id = self._next_interaction(chat_id, None, handler, user_id)
         rows = [
             [{"type": "callback", "text": label, "payload": f"hermes:{interaction_id}:{value}"}]
             for label, value in buttons
@@ -330,8 +384,15 @@ class MaxAdapter(BasePlatformAdapter):
         if not result.success:
             self._interactive.pop(interaction_id, None)
         else:
-            self._interactive[interaction_id] = (chat_id, result.message_id, handler)
+            self._interactive[interaction_id] = (chat_id, user_id, result.message_id, handler)
         return result
+
+    @staticmethod
+    def _interaction_user_id(session_key: str, chat_id: str) -> str:
+        marker = f":{chat_id}:"
+        if marker not in session_key:
+            return ""
+        return session_key.rsplit(marker, 1)[1].split(":", 1)[0]
 
     async def send_clarify(
         self,
@@ -356,7 +417,14 @@ class MaxAdapter(BasePlatformAdapter):
 
         labels = [(str(choice), str(index)) for index, choice in enumerate(choices)]
         labels.append(("Other", "other"))
-        return await self._send_interaction(chat_id, question, labels, resolve, closeable=True)
+        return await self._send_interaction(
+            chat_id,
+            question,
+            labels,
+            resolve,
+            closeable=True,
+            user_id=self._interaction_user_id(session_key, chat_id),
+        )
 
     async def send_slash_confirm(
         self,
@@ -378,6 +446,7 @@ class MaxAdapter(BasePlatformAdapter):
             message,
             [("Approve once", "once"), ("Always approve", "always"), ("Cancel", "cancel")],
             resolve,
+            user_id=self._interaction_user_id(session_key, chat_id),
         )
 
     async def send_exec_approval(
@@ -407,6 +476,7 @@ class MaxAdapter(BasePlatformAdapter):
             f"**Command approval required**\n\n`{command}`\n\n{description}",
             buttons,
             resolve,
+            user_id=self._interaction_user_id(session_key, chat_id),
         )
 
     async def send_update_prompt(
@@ -453,7 +523,14 @@ class MaxAdapter(BasePlatformAdapter):
             if choice.get("is_current"):
                 label = f"✓ {label}"
             buttons.append((label, value))
-        return await self._send_interaction(chat_id, title, buttons, resolve, closeable=True)
+        return await self._send_interaction(
+            chat_id,
+            title,
+            buttons,
+            resolve,
+            closeable=True,
+            user_id=self._interaction_user_id(session_key, chat_id),
+        )
 
     async def send_model_picker(
         self,
