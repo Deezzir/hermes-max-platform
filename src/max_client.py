@@ -117,9 +117,7 @@ class MaxClient:
         await self._request("POST", f"/chats/{chat_id}/actions", json={"action": action})
 
     async def answer_callback(self, callback_id: str, text: str | None = None) -> None:
-        body: dict[str, Any] = {}
-        if text:
-            body["text"] = text
+        body: dict[str, Any] = {"notification": {"text": text or "OK"}}
         await self._request("POST", "/answers", params={"callback_id": callback_id}, json=body)
 
     async def upload_file(self, path: Path, media_type: str) -> dict[str, Any]:

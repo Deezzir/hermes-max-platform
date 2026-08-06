@@ -241,7 +241,10 @@ class MaxAdapter(BasePlatformAdapter):
         except (ValueError, RuntimeError):
             logger.exception("MAX interactive callback failed")
             if callback_id:
-                await self._client.answer_callback(callback_id, "Action failed")
+                try:
+                    await self._client.answer_callback(callback_id, "Action failed")
+                except RuntimeError:
+                    logger.warning("MAX callback failure notification failed")
             return True
 
     async def _send_interaction(
