@@ -57,6 +57,7 @@ class MaxAdapter(BasePlatformAdapter):
         self._last_send: dict[str, float] = {}
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
+        self._token_lock_held = False
         self._status_messages: dict[tuple[str, str], str] = {}
         self._interactive: OrderedDict[
             str, tuple[str, str | None, Callable[[str], Awaitable[str | None]]]
@@ -69,6 +70,15 @@ class MaxAdapter(BasePlatformAdapter):
                 "config_missing", "MAX configuration is incomplete", retryable=False
             )
             return False
+        from gateway.status import acquire_scoped_lock
+
+        acquired, _ = acquire_scoped_lock("max", self._token)
+        if not acquired:
+            self._set_fatal_error(
+                "token_in_use", "MAX bot token is already in use", retryable=False
+            )
+            return False
+        self._token_lock_held = True
         self._client = MaxClient(self._token)
         try:
             bot = await self._client.get_me()
@@ -110,6 +120,11 @@ class MaxAdapter(BasePlatformAdapter):
         if self._client is not None:
             await self._client.close()
             self._client = None
+        if self._token_lock_held:
+            from gateway.status import release_scoped_lock
+
+            release_scoped_lock("max", self._token)
+            self._token_lock_held = False
         self._mark_disconnected()
         logger.info("MAX adapter disconnected")
 
@@ -760,6 +775,11 @@ def _media_type(path: Path) -> str:
     return "file"
 
 
+def _apply_yaml_config(yaml_cfg: dict[str, Any], platform_cfg: dict[str, Any]) -> None:
+    if "require_mention" in platform_cfg and not os.getenv("MAX_REQUIRE_MENTION"):
+        os.environ["MAX_REQUIRE_MENTION"] = str(platform_cfg["require_mention"]).lower()
+
+
 def register(ctx: Any) -> None:
     ctx.register_platform(
         name="max",
@@ -775,6 +795,7 @@ def register(ctx: Any) -> None:
         ],
         allowed_users_env="MAX_ALLOWED_USERS",
         env_enablement_fn=_env_enablement,
+        apply_yaml_config_fn=_apply_yaml_config,
         cron_deliver_env_var="MAX_HOME_CHANNEL",
         standalone_sender_fn=_standalone_send,
         max_message_length=4000,
