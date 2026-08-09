@@ -10,19 +10,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out plugin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Check out Hermes Agent dependency
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: NousResearch/hermes-agent
           ref: 6564f319a647b47de391cab2f608660323804a2b
           path: .scratch/hermes-agent
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Set up UV
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v9.0.0
       - name: Install development dependencies
         run: uv sync --group dev
       - name: Run lint checks
@@ -33,19 +33,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out plugin
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
       - name: Check out Hermes Agent dependency
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: NousResearch/hermes-agent
           ref: 6564f319a647b47de391cab2f608660323804a2b
           path: .scratch/hermes-agent
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.14"
       - name: Set up UV
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v9.0.0
       - name: Install development dependencies
         run: uv sync --group dev
       - name: Run unit tests
