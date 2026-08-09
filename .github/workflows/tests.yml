@@ -25,8 +25,8 @@ jobs:
         uses: astral-sh/setup-uv@v6
       - name: Install development dependencies
         run: uv sync --group dev
-      - name: Run Ruff lint checks
-        run: tox -e lint
+      - name: Run lint checks
+        run: uv run tox -e lint
 
   unit:
     name: Unit Tests and Coverage
@@ -48,5 +48,5 @@ jobs:
         uses: astral-sh/setup-uv@v6
       - name: Install development dependencies
         run: uv sync --group dev
-      - name: Run unit tests with coverage gate
-        run: tox -e unit
+      - name: Run unit tests
+        run: uv run tox -e unit

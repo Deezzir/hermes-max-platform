@@ -10,7 +10,7 @@ import aiohttp
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 _REQUEST_TIMEOUT_SECONDS = 30
-_MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+_MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
 
 
 def _is_attachment_host(hostname: str) -> bool:
@@ -147,13 +147,13 @@ class MaxClient:
                 response.raise_for_status()
                 content_length = int(response.headers.get("Content-Length") or 0)
                 if content_length > _MAX_ATTACHMENT_BYTES:
-                    raise ValueError("MAX attachment exceeds 10 MiB")
+                    raise ValueError("MAX attachment exceeds 50 MiB")
                 chunks = []
                 size = 0
                 async for chunk in response.content.iter_chunked(64 * 1024):
                     size += len(chunk)
                     if size > _MAX_ATTACHMENT_BYTES:
-                        raise ValueError("MAX attachment exceeds 10 MiB")
+                        raise ValueError("MAX attachment exceeds 50 MiB")
                     chunks.append(chunk)
                 data = b"".join(chunks)
         except (aiohttp.ClientError, asyncio.TimeoutError) as exc:

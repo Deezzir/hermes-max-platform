@@ -247,12 +247,12 @@ async def test_download_attachment_validates_url_and_returns_content_type(monkey
 async def test_download_attachment_rejects_large_content(monkeypatch):
     client = MaxClient("secret")
     response = MagicMock()
-    response.headers = {"Content-Length": str(10 * 1024 * 1024 + 1)}
+    response.headers = {"Content-Length": str(50 * 1024 * 1024 + 1)}
     context = MagicMock()
     context.__aenter__.return_value = response
     monkeypatch.setattr(client._session, "get", lambda *args, **kwargs: context)
 
-    with pytest.raises(ValueError, match="10 MiB"):
+    with pytest.raises(ValueError, match="50 MiB"):
         await client.download_attachment("https://fd.oneme.ru/file")
     await client.close()
 
