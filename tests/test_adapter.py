@@ -49,6 +49,19 @@ class RecordingContext:
         )
 
 
+def test_registered_platform_hint_explains_file_delivery():
+    registered = {}
+
+    class Context:
+        def register_platform(self, **kwargs):
+            registered.update(kwargs)
+
+    register(Context())
+
+    assert "MEDIA:/absolute/path/to/file" in registered["platform_hint"]
+    assert "native MAX attachment" in registered["platform_hint"]
+
+
 @pytest.fixture
 def message_created_update():
     return {

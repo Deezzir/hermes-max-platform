@@ -886,5 +886,9 @@ def register(ctx: Any) -> None:
         max_message_length=4000,
         pii_safe=False,
         emoji="M",
-        platform_hint="You are chatting via MAX. Always use MAX Markdown.",
+        platform_hint=(
+            "You are chatting via MAX. Always use MAX Markdown. You can send files natively: "
+            "include MEDIA:/absolute/path/to/file in your response. The file will be sent as a "
+            "native MAX attachment. Do not tell the user that file delivery is unavailable."
+        ),
     )
