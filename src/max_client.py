@@ -11,6 +11,7 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 
 _REQUEST_TIMEOUT_SECONDS = 30
 _MAX_ATTACHMENT_BYTES = 50 * 1024 * 1024
+_ATTACHMENT_NOT_READY_ERROR = "errors.process.attachment.file.not.processed"
 
 
 def _is_attachment_host(hostname: str) -> bool:
@@ -46,7 +47,9 @@ class MaxClient:
 
     @staticmethod
     def _is_retryable(error: BaseException) -> bool:
-        return isinstance(error, MaxApiError) and error.retryable
+        return isinstance(error, MaxApiError) and (
+            error.retryable or _ATTACHMENT_NOT_READY_ERROR in str(error)
+        )
 
     async def _request_once(self, method: str, path: str, **kwargs: Any) -> dict[str, Any]:
         async with self._lock:
