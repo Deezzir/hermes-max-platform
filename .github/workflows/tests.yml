@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: "3.14"
       - name: Set up UV
-        uses: astral-sh/setup-uv@v9.0.0
+        uses: astral-sh/setup-uv@v10.2.0
       - name: Install development dependencies
         run: uv sync --group dev
       - name: Run lint checks
@@ -45,7 +45,7 @@ jobs:
         with:
           python-version: "3.14"
       - name: Set up UV
-        uses: astral-sh/setup-uv@v9.0.0
+        uses: astral-sh/setup-uv@v10.2.0
       - name: Install development dependencies
         run: uv sync --group dev
       - name: Run unit tests
