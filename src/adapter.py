@@ -97,8 +97,8 @@ class MaxAdapter(BasePlatformAdapter):
             self._bot_username = str(bot.get("username") or "")
             self._runner = web.AppRunner(self.create_app())
             await self._runner.setup()
-            host = os.getenv("MAX_LISTEN_HOST", "0.0.0.0")
-            port = int(os.getenv("MAX_LISTEN_PORT", "8080"))
+            host = _get_scoped_secret("MAX_LISTEN_HOST", "0.0.0.0")
+            port = int(_get_scoped_secret("MAX_LISTEN_PORT", "8080"))
             self._site = web.TCPSite(self._runner, host, port)
             await self._site.start()
             logger.info("MAX webhook listener started host=%s port=%s", host, port)
@@ -792,18 +792,18 @@ def check_requirements() -> bool:
 def validate_config(config: Any) -> bool:
     extra = getattr(config, "extra", {}) or {}
     return (
-        bool(os.getenv("MAX_BOT_TOKEN") or extra.get("token"))
-        and bool(os.getenv("MAX_WEBHOOK_URL") or extra.get("webhook_url"))
-        and bool(os.getenv("MAX_WEBHOOK_SECRET") or extra.get("webhook_secret"))
-        and bool(os.getenv("MAX_ALLOWED_USERS") or extra.get("allowed_users"))
+        bool(_get_scoped_secret("MAX_BOT_TOKEN") or extra.get("token"))
+        and bool(_get_scoped_secret("MAX_WEBHOOK_URL") or extra.get("webhook_url"))
+        and bool(_get_scoped_secret("MAX_WEBHOOK_SECRET") or extra.get("webhook_secret"))
+        and bool(_get_scoped_secret("MAX_ALLOWED_USERS") or extra.get("allowed_users"))
     )
 
 
 def _env_enablement() -> dict[str, Any] | None:
-    token = os.getenv("MAX_BOT_TOKEN", "").strip()
-    webhook_url = os.getenv("MAX_WEBHOOK_URL", "").strip()
-    webhook_secret = os.getenv("MAX_WEBHOOK_SECRET", "").strip()
-    allowed_users = os.getenv("MAX_ALLOWED_USERS", "").strip()
+    token = _get_scoped_secret("MAX_BOT_TOKEN").strip()
+    webhook_url = _get_scoped_secret("MAX_WEBHOOK_URL").strip()
+    webhook_secret = _get_scoped_secret("MAX_WEBHOOK_SECRET").strip()
+    allowed_users = _get_scoped_secret("MAX_ALLOWED_USERS").strip()
     if not all((token, webhook_url, webhook_secret, allowed_users)):
         return None
     result: dict[str, Any] = {
@@ -812,7 +812,7 @@ def _env_enablement() -> dict[str, Any] | None:
         "webhook_secret": webhook_secret,
         "allowed_users": allowed_users,
     }
-    home = os.getenv("MAX_HOME_CHANNEL", "").strip()
+    home = _get_scoped_secret("MAX_HOME_CHANNEL").strip()
     if home:
         result["home_channel"] = {"chat_id": home, "name": "MAX Home"}
     return result
@@ -828,7 +828,7 @@ async def _standalone_send(
     force_document: bool = False,
 ) -> dict[str, Any]:
     extra = getattr(pconfig, "extra", {}) or {}
-    token = os.getenv("MAX_BOT_TOKEN") or extra.get("token", "")
+    token = _get_scoped_secret("MAX_BOT_TOKEN") or extra.get("token", "")
     if not token:
         return {"error": "MAX_BOT_TOKEN is not configured"}
     client = MaxClient(token)
@@ -861,7 +861,7 @@ def _media_type(path: Path) -> str:
 
 
 def _apply_yaml_config(yaml_cfg: dict[str, Any], platform_cfg: dict[str, Any]) -> None:
-    if "require_mention" in platform_cfg and not os.getenv("MAX_REQUIRE_MENTION"):
+    if "require_mention" in platform_cfg and not _get_scoped_secret("MAX_REQUIRE_MENTION"):
         os.environ["MAX_REQUIRE_MENTION"] = str(platform_cfg["require_mention"]).lower()
 
 
